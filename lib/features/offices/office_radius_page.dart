@@ -226,14 +226,18 @@ class _OfficeRadiusFormPageState extends State<OfficeRadiusFormPage> {
       final now = DateTime.now().millisecondsSinceEpoch;
       final officeId = widget.office?.id ?? db.ref('offices/${widget.session.companyId}').push().key!;
       final path = 'offices/${widget.session.companyId}/$officeId';
+      final officeAddress = address.text.trim();
 
       await db.ref(path).update({
         'office_id': officeId,
         'company_id': widget.session.companyId,
         'name': officeName,
         'office_name': officeName,
-        'address': address.text.trim(),
-        'alamat': address.text.trim(),
+        'address': officeAddress,
+        'alamat': officeAddress,
+        'area_name': widget.office?.areaName ?? '',
+        'area': widget.office?.areaName ?? '',
+        'wilayah': widget.office?.areaName ?? '',
         'latitude': selectedPoint.latitude,
         'longitude': selectedPoint.longitude,
         'lat': selectedPoint.latitude,
