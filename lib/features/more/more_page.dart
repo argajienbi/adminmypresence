@@ -15,6 +15,7 @@ import '../organization/organization_management_page.dart';
 import '../owner/owner_tools_page.dart';
 import '../reports/advanced_reports_page.dart';
 import '../reports/reports_page.dart';
+import '../reports/reports_summary_page.dart';
 import '../settings/settings_management_page.dart';
 
 class MorePage extends StatelessWidget {
@@ -38,8 +39,9 @@ class MorePage extends StatelessWidget {
         _MoreTile('Notifikasi', 'Pantau queue push notification.', Icons.notifications_active_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => NotificationLogsPage(session: session, service: service)))),
         _MoreTile('Pengaturan Notifikasi', 'Atur notifikasi absensi, approval, jadwal, dan summary.', Icons.notification_important_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => NotificationSettingsPageFull(session: session)))),
         _MoreTile('Radius Kantor', 'Atur titik kantor dan radius absen.', Icons.map_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => OfficeRadiusPage(session: session)))),
-        _MoreTile('Laporan Ringkas', 'Lihat ringkasan laporan.', Icons.insert_chart_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ReportsPage(session: session, service: service)))),
-        _MoreTile('Advanced Reports', 'Port laporan absensi admin web dengan filter.', Icons.table_chart_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AdvancedReportsPage(session: session)))),
+        _MoreTile('Laporan Ringkas', 'Lihat ringkasan laporan lama.', Icons.insert_chart_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ReportsPage(session: session, service: service)))),
+        _MoreTile('Reports Summary', 'Ringkasan absensi per karyawan dan export Excel.', Icons.summarize_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ReportsSummaryPage(session: session)))),
+        _MoreTile('Advanced Reports', 'Detail absensi lengkap dengan export Excel.', Icons.table_chart_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AdvancedReportsPage(session: session)))),
         _MoreTile('Koreksi Absensi', 'Review, approve, dan reject koreksi absensi.', Icons.edit_calendar_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AttendanceCorrectionsListPage(session: session)))),
         _MoreTile('Organisasi', 'Area, kantor, departemen, sub departemen, dan grup.', Icons.account_tree_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => OrganizationManagementPage(session: session)))),
         _MoreTile('Settings', 'Profil company, aturan absensi, approval, dan app config.', Icons.settings_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => SettingsManagementPage(session: session)))),
