@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../core/models.dart';
 import '../../services/admin_service.dart';
 import '../shared/message_card.dart';
+import 'employee_detail_page.dart';
 
 class EmployeesPage extends StatefulWidget {
   final AdminSession session;
@@ -76,6 +77,11 @@ class _EmployeesPageState extends State<EmployeesPage> {
       builder: (_) => _EmployeeSheet(session: widget.session, service: widget.service, bundle: bundle, employee: employee),
     );
     if (ok == true) refresh();
+  }
+
+  Future<void> openDetail(ManagedEmployee employee) async {
+    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => EmployeeDetailPage(session: widget.session, employeeId: employee.id)));
+    refresh();
   }
 
   Future<void> setActive(ManagedEmployee employee, bool active) async {
@@ -168,7 +174,8 @@ class _EmployeesPageState extends State<EmployeesPage> {
                       subtitle: Text('${e.email}\n${[e.nip, e.role, e.officeName, e.departmentName, e.groupName].where((v) => v.isNotEmpty).join(' • ')}'),
                       isThreeLine: true,
                       trailing: Switch(value: e.active, onChanged: (v) => setActive(e, v)),
-                      onTap: () => openForm(bundle, e),
+                      onTap: () => openDetail(e),
+                      onLongPress: () => openForm(bundle, e),
                     ),
                   )),
           ],
