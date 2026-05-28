@@ -65,6 +65,29 @@ class _OfficeRadiusPageState extends State<OfficeRadiusPage> {
     }).toList();
   }
 
+  Future<void> toggleOfficeActive(OfficeRadiusRecord office, bool active) async {
+    try {
+      final db = FirebaseDatabase.instance;
+      final targetPath = 'offices/${widget.session.companyId}/${office.id}';
+      await db.ref(targetPath).update({
+        'active': active,
+        'status': active ? 'active' : 'inactive',
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+        'updated_by': widget.session.uid,
+      });
+      await _writeAuditLog(
+        session: widget.session,
+        action: active ? 'activate office' : 'deactivate office',
+        targetId: office.id,
+        targetPath: targetPath,
+      );
+      refresh();
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+  }
+
   Future<void> openForm([OfficeRadiusRecord? office]) async {
     final saved = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
@@ -157,7 +180,10 @@ class _OfficeRadiusPageState extends State<OfficeRadiusPage> {
                         '${office.address.ifEmpty('-')}\n${office.areaName.ifEmpty('-')} • Lat ${office.latitude}, Lng ${office.longitude}, Radius ${office.radius.toStringAsFixed(0)} m',
                       ),
                       isThreeLine: true,
-                      trailing: const Icon(Icons.chevron_right_rounded),
+                      trailing: Switch(
+                        value: office.active,
+                        onChanged: (value) => toggleOfficeActive(office, value),
+                      ),
                       onTap: () => openForm(office),
                     ),
                   ),
@@ -185,13 +211,16 @@ class OfficeRadiusFormPage extends StatefulWidget {
 }
 
 class _OfficeRadiusFormPageState extends State<OfficeRadiusFormPage> {
-  late final TextEditingController name = TextEditingController(text: widget.office?.name ?? '');
-  late final TextEditingController address = TextEditingController(text: widget.office?.address ?? '');
-  late final TextEditingController radiusController = TextEditingController(text: (widget.office?.radius ?? 100).toStringAsFixed(0));
   late LatLng selectedPoint = LatLng(
     widget.office == null || widget.office!.latitude == 0 ? -6.200000 : widget.office!.latitude,
     widget.office == null || widget.office!.longitude == 0 ? 106.816666 : widget.office!.longitude,
   );
+  late final TextEditingController name = TextEditingController(text: widget.office?.name ?? '');
+  late final TextEditingController address = TextEditingController(text: widget.office?.address ?? '');
+  late final TextEditingController area = TextEditingController(text: widget.office?.areaName ?? '');
+  late final TextEditingController radiusController = TextEditingController(text: (widget.office?.radius ?? 100).toStringAsFixed(0));
+  late final TextEditingController latitudeController = TextEditingController(text: selectedPoint.latitude.toStringAsFixed(6));
+  late final TextEditingController longitudeController = TextEditingController(text: selectedPoint.longitude.toStringAsFixed(6));
   late double radius = widget.office?.radius ?? 100;
   bool saving = false;
 
@@ -199,7 +228,10 @@ class _OfficeRadiusFormPageState extends State<OfficeRadiusFormPage> {
   void dispose() {
     name.dispose();
     address.dispose();
+    area.dispose();
     radiusController.dispose();
+    latitudeController.dispose();
+    longitudeController.dispose();
     super.dispose();
   }
 
@@ -215,10 +247,13 @@ class _OfficeRadiusFormPageState extends State<OfficeRadiusFormPage> {
       showError('Radius harus lebih dari 0 meter.');
       return;
     }
+    final manualPoint = resolveManualCoordinate();
+    if (manualPoint == null) return;
 
     setState(() {
       saving = true;
       radius = rad;
+      selectedPoint = manualPoint;
     });
 
     try {
@@ -227,6 +262,7 @@ class _OfficeRadiusFormPageState extends State<OfficeRadiusFormPage> {
       final officeId = widget.office?.id ?? db.ref('offices/${widget.session.companyId}').push().key!;
       final path = 'offices/${widget.session.companyId}/$officeId';
       final officeAddress = address.text.trim();
+      final officeArea = area.text.trim();
 
       await db.ref(path).update({
         'office_id': officeId,
@@ -235,13 +271,13 @@ class _OfficeRadiusFormPageState extends State<OfficeRadiusFormPage> {
         'office_name': officeName,
         'address': officeAddress,
         'alamat': officeAddress,
-        'area_name': widget.office?.areaName ?? '',
-        'area': widget.office?.areaName ?? '',
-        'wilayah': widget.office?.areaName ?? '',
-        'latitude': selectedPoint.latitude,
-        'longitude': selectedPoint.longitude,
-        'lat': selectedPoint.latitude,
-        'lng': selectedPoint.longitude,
+        'area_name': officeArea,
+        'area': officeArea,
+        'wilayah': officeArea,
+        'latitude': manualPoint.latitude,
+        'longitude': manualPoint.longitude,
+        'lat': manualPoint.latitude,
+        'lng': manualPoint.longitude,
         'radius_meter': rad,
         'radius': rad,
         'geofence_radius': rad,
@@ -251,6 +287,12 @@ class _OfficeRadiusFormPageState extends State<OfficeRadiusFormPage> {
         if (widget.office == null) 'created_at': now,
         if (widget.office == null) 'created_by': widget.session.uid,
       });
+      await _writeAuditLog(
+        session: widget.session,
+        action: widget.office == null ? 'create office radius' : 'update office radius',
+        targetId: officeId,
+        targetPath: path,
+      );
 
       if (!mounted) return;
       Navigator.of(context).pop(true);
@@ -260,6 +302,30 @@ class _OfficeRadiusFormPageState extends State<OfficeRadiusFormPage> {
     } finally {
       if (mounted) setState(() => saving = false);
     }
+  }
+
+  void updateSelectedPoint(LatLng point) {
+    setState(() {
+      selectedPoint = point;
+      latitudeController.text = point.latitude.toStringAsFixed(6);
+      longitudeController.text = point.longitude.toStringAsFixed(6);
+    });
+  }
+
+  LatLng? resolveManualCoordinate() {
+    final lat = double.tryParse(latitudeController.text.trim());
+    final lng = double.tryParse(longitudeController.text.trim());
+    if (lat == null || lat < -90 || lat > 90 || lng == null || lng < -180 || lng > 180) {
+      showError('Latitude atau longitude manual tidak valid.');
+      return null;
+    }
+    return LatLng(lat, lng);
+  }
+
+  void applyManualCoordinate() {
+    final point = resolveManualCoordinate();
+    if (point == null) return;
+    updateSelectedPoint(point);
   }
 
   void showError(String message) {
@@ -295,7 +361,7 @@ class _OfficeRadiusFormPageState extends State<OfficeRadiusFormPage> {
                 options: MapOptions(
                   initialCenter: selectedPoint,
                   initialZoom: 16,
-                  onTap: (_, point) => setState(() => selectedPoint = point),
+                  onTap: (_, point) => updateSelectedPoint(point),
                 ),
                 children: [
                   TileLayer(
@@ -335,6 +401,34 @@ class _OfficeRadiusFormPageState extends State<OfficeRadiusFormPage> {
           TextField(controller: name, decoration: const InputDecoration(labelText: 'Nama kantor')),
           const SizedBox(height: 10),
           TextField(controller: address, decoration: const InputDecoration(labelText: 'Alamat')),
+          const SizedBox(height: 10),
+          TextField(controller: area, decoration: const InputDecoration(labelText: 'Area / Wilayah')),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: latitudeController,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
+                  decoration: const InputDecoration(labelText: 'Latitude'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  controller: longitudeController,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
+                  decoration: const InputDecoration(labelText: 'Longitude'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            onPressed: applyManualCoordinate,
+            icon: const Icon(Icons.my_location_rounded),
+            label: const Text('Terapkan Koordinat Manual'),
+          ),
           const SizedBox(height: 10),
           TextField(
             controller: radiusController,
@@ -406,6 +500,22 @@ String _read(Map<String, dynamic> data, List<String> keys) {
 double _toDouble(Object? value) {
   if (value is num) return value.toDouble();
   return double.tryParse(value?.toString() ?? '') ?? 0;
+}
+
+Future<void> _writeAuditLog({
+  required AdminSession session,
+  required String action,
+  required String targetId,
+  required String targetPath,
+}) async {
+  await FirebaseDatabase.instance.ref('audit_logs/${session.companyId}').push().set({
+    'action': action,
+    'target_id': targetId,
+    'target_path': targetPath,
+    'actor_uid': session.uid,
+    'actor_email': session.email,
+    'created_at': DateTime.now().millisecondsSinceEpoch,
+  });
 }
 
 extension _StringFallback on String {
