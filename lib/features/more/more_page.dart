@@ -14,6 +14,7 @@ import '../organization/organization_management_page.dart';
 import '../owner/owner_tools_page.dart';
 import '../reports/advanced_reports_page.dart';
 import '../reports/reports_page.dart';
+import '../settings/settings_management_page.dart';
 
 class MorePage extends StatelessWidget {
   final AdminSession session;
@@ -40,7 +41,7 @@ class MorePage extends StatelessWidget {
         _MoreTile('Advanced Reports', 'Port laporan absensi admin web dengan filter.', Icons.table_chart_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AdvancedReportsPage(session: session)))),
         _MoreTile('Koreksi Absensi', 'Review, approve, dan reject koreksi absensi.', Icons.edit_calendar_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AttendanceCorrectionsListPage(session: session)))),
         _MoreTile('Organisasi', 'Area, kantor, departemen, sub departemen, dan grup.', Icons.account_tree_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => OrganizationManagementPage(session: session)))),
-        _MoreTile('Settings', 'Pengaturan perusahaan dan aplikasi.', Icons.settings_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => SettingsPage(session: session)))),
+        _MoreTile('Settings', 'Profil company, aturan absensi, approval, dan app config.', Icons.settings_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => SettingsManagementPage(session: session)))),
         if (isOwner) ...[
           _MoreTile('Owner Tools', 'Kelola company, admin, invite, dan status aktif.', Icons.admin_panel_settings_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => OwnerToolsPage(session: session)))),
           _MoreTile('Audit', 'Filter dan detail log aktivitas admin.', Icons.history_edu_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AuditLogsPage(session: session)))),
