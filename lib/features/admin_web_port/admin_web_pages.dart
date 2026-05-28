@@ -1,8 +1,8 @@
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 
-import '../../core/date_utils.dart';
 import '../../core/models.dart';
+import '../attendance/attendance_monitor_page.dart';
 import '../shared/message_card.dart';
 
 class CompaniesPage extends StatelessWidget {
@@ -65,15 +65,7 @@ class AttendancePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final today = AdminDateUtils.dateKey(DateTime.now());
-    return AdminDataPage(
-      title: 'Attendance',
-      subtitle: 'Absensi hari ini.',
-      icon: Icons.access_time_filled_rounded,
-      path: 'attendance/${session.companyId}/$today',
-      titleKeys: const ['nama_lengkap', 'name', 'display_name', 'uid'],
-      subtitleKeys: const ['status', 'check_in', 'masuk', 'check_out', 'pulang'],
-    );
+    return AttendanceMonitorPage(session: session);
   }
 }
 
@@ -159,12 +151,19 @@ class DatabaseHealthPage extends StatelessWidget {
       'attendance/${session.companyId}',
       'leave_requests/${session.companyId}',
       'qr_attendance_requests/${session.companyId}',
+      'attendance_corrections/${session.companyId}',
       'timetables/${session.companyId}',
       'shifts/${session.companyId}',
       'schedule_assignments/${session.companyId}',
       'schedule_specials/${session.companyId}',
+      'holidays/${session.companyId}',
       'overtime_schedules/${session.companyId}',
+      'offices/${session.companyId}',
+      'departments/${session.companyId}',
+      'sub_departments/${session.companyId}',
+      'employee_groups/${session.companyId}',
       'announcements/${session.companyId}',
+      'audit_logs/${session.companyId}',
     ];
 
     return Scaffold(
@@ -342,9 +341,7 @@ class _HealthItem {
 }
 
 Map<String, dynamic>? _asMap(Object? value) {
-  if (value is Map) {
-    return value.map((key, item) => MapEntry(key.toString(), item));
-  }
+  if (value is Map) return value.map((key, item) => MapEntry(key.toString(), item));
   return null;
 }
 
