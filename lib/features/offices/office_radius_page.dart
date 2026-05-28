@@ -1,5 +1,7 @@
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 
 import '../../core/models.dart';
 import '../shared/message_card.dart';
@@ -86,7 +88,7 @@ class _OfficeRadiusPageState extends State<OfficeRadiusPage> {
             children: [
               const MessageCard(
                 title: 'Radius Kantor',
-                message: 'Atur latitude, longitude, dan radius absen kantor. Data disimpan ke offices/{companyId}/{officeId}.',
+                message: 'Atur titik kantor lewat peta native Flutter dan radius absen kantor. Data disimpan ke offices/{companyId}/{officeId}.',
                 icon: Icons.map_rounded,
               ),
               const SizedBox(height: 12),
@@ -104,7 +106,7 @@ class _OfficeRadiusPageState extends State<OfficeRadiusPage> {
               else if (offices.isEmpty)
                 const MessageCard(
                   title: 'Belum ada kantor',
-                  message: 'Tambahkan kantor dulu, lalu isi titik koordinat dan radius.',
+                  message: 'Tambahkan kantor dulu, lalu pilih titik di peta dan isi radius.',
                   icon: Icons.business_outlined,
                 )
               else
@@ -150,37 +152,28 @@ class OfficeRadiusFormPage extends StatefulWidget {
 class _OfficeRadiusFormPageState extends State<OfficeRadiusFormPage> {
   late final TextEditingController name = TextEditingController(text: widget.office?.name ?? '');
   late final TextEditingController address = TextEditingController(text: widget.office?.address ?? '');
-  late final TextEditingController latitude = TextEditingController(text: widget.office == null || widget.office!.latitude == 0 ? '' : widget.office!.latitude.toString());
-  late final TextEditingController longitude = TextEditingController(text: widget.office == null || widget.office!.longitude == 0 ? '' : widget.office!.longitude.toString());
-  late final TextEditingController radius = TextEditingController(text: (widget.office?.radius ?? 100).toStringAsFixed(0));
+  late final TextEditingController radiusController = TextEditingController(text: (widget.office?.radius ?? 100).toStringAsFixed(0));
+  late LatLng selectedPoint = LatLng(
+    widget.office == null || widget.office!.latitude == 0 ? -6.200000 : widget.office!.latitude,
+    widget.office == null || widget.office!.longitude == 0 ? 106.816666 : widget.office!.longitude,
+  );
+  late double radius = widget.office?.radius ?? 100;
   bool saving = false;
 
   @override
   void dispose() {
     name.dispose();
     address.dispose();
-    latitude.dispose();
-    longitude.dispose();
-    radius.dispose();
+    radiusController.dispose();
     super.dispose();
   }
 
   Future<void> save() async {
     final officeName = name.text.trim();
-    final lat = double.tryParse(latitude.text.trim());
-    final lng = double.tryParse(longitude.text.trim());
-    final rad = double.tryParse(radius.text.trim());
+    final rad = double.tryParse(radiusController.text.trim());
 
     if (officeName.isEmpty) {
       showError('Nama kantor wajib diisi.');
-      return;
-    }
-    if (lat == null || lat < -90 || lat > 90) {
-      showError('Latitude tidak valid.');
-      return;
-    }
-    if (lng == null || lng < -180 || lng > 180) {
-      showError('Longitude tidak valid.');
       return;
     }
     if (rad == null || rad <= 0) {
@@ -188,7 +181,10 @@ class _OfficeRadiusFormPageState extends State<OfficeRadiusFormPage> {
       return;
     }
 
-    setState(() => saving = true);
+    setState(() {
+      saving = true;
+      radius = rad;
+    });
 
     try {
       final db = FirebaseDatabase.instance;
@@ -203,10 +199,10 @@ class _OfficeRadiusFormPageState extends State<OfficeRadiusFormPage> {
         'office_name': officeName,
         'address': address.text.trim(),
         'alamat': address.text.trim(),
-        'latitude': lat,
-        'longitude': lng,
-        'lat': lat,
-        'lng': lng,
+        'latitude': selectedPoint.latitude,
+        'longitude': selectedPoint.longitude,
+        'lat': selectedPoint.latitude,
+        'lng': selectedPoint.longitude,
         'radius_meter': rad,
         'radius': rad,
         'geofence_radius': rad,
@@ -231,6 +227,12 @@ class _OfficeRadiusFormPageState extends State<OfficeRadiusFormPage> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
+  void updateRadius(String value) {
+    final parsed = double.tryParse(value.trim());
+    if (parsed == null || parsed <= 0) return;
+    setState(() => radius = parsed);
+  }
+
   @override
   Widget build(BuildContext context) {
     final editing = widget.office != null;
@@ -241,20 +243,80 @@ class _OfficeRadiusFormPageState extends State<OfficeRadiusFormPage> {
         padding: const EdgeInsets.all(18),
         children: [
           const MessageCard(
-            title: 'Koordinat Kantor',
-            message: 'Isi latitude dan longitude dari Google Maps/OpenStreetMap, lalu tentukan radius meter untuk validasi absen.',
+            title: 'Peta Radius Kantor',
+            message: 'Tap peta untuk memilih titik kantor. Lingkaran menunjukkan radius absen dalam meter.',
             icon: Icons.place_rounded,
           ),
           const SizedBox(height: 12),
+          SizedBox(
+            height: 340,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(22),
+              child: FlutterMap(
+                options: MapOptions(
+                  initialCenter: selectedPoint,
+                  initialZoom: 16,
+                  onTap: (_, point) => setState(() => selectedPoint = point),
+                ),
+                children: [
+                  TileLayer(
+                    urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    userAgentPackageName: 'com.adminmypresence',
+                  ),
+                  CircleLayer(
+                    circles: [
+                      CircleMarker(
+                        point: selectedPoint,
+                        radius: radius,
+                        useRadiusInMeter: true,
+                      ),
+                    ],
+                  ),
+                  MarkerLayer(
+                    markers: [
+                      Marker(
+                        point: selectedPoint,
+                        width: 48,
+                        height: 48,
+                        child: const Icon(Icons.location_pin, size: 44),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Lat ${selectedPoint.latitude.toStringAsFixed(6)}  |  Lng ${selectedPoint.longitude.toStringAsFixed(6)}',
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 16),
           TextField(controller: name, decoration: const InputDecoration(labelText: 'Nama kantor')),
           const SizedBox(height: 10),
           TextField(controller: address, decoration: const InputDecoration(labelText: 'Alamat')),
           const SizedBox(height: 10),
-          TextField(controller: latitude, keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true), decoration: const InputDecoration(labelText: 'Latitude', hintText: '-6.200000')),
-          const SizedBox(height: 10),
-          TextField(controller: longitude, keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true), decoration: const InputDecoration(labelText: 'Longitude', hintText: '106.816666')),
-          const SizedBox(height: 10),
-          TextField(controller: radius, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Radius meter', hintText: '100')),
+          TextField(
+            controller: radiusController,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(labelText: 'Radius meter', hintText: '100'),
+            onChanged: updateRadius,
+          ),
+          const SizedBox(height: 12),
+          Slider(
+            value: radius.clamp(10, 1000),
+            min: 10,
+            max: 1000,
+            divisions: 99,
+            label: '${radius.toStringAsFixed(0)} m',
+            onChanged: (value) {
+              setState(() {
+                radius = value;
+                radiusController.text = value.toStringAsFixed(0);
+              });
+            },
+          ),
           const SizedBox(height: 18),
           FilledButton.icon(
             onPressed: saving ? null : save,
