@@ -15,6 +15,7 @@ import '../notifications/notification_settings_page.dart';
 import '../offices/office_radius_page.dart';
 import '../organization/organization_management_page.dart';
 import '../owner/owner_tools_page.dart';
+import '../payroll/work_recap_page.dart';
 import '../reports/advanced_reports_page.dart';
 import '../reports/reports_page.dart';
 import '../reports/reports_summary_page.dart';
@@ -38,6 +39,7 @@ class MorePage extends StatelessWidget {
         Text('Lainnya', style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900)),
         const SizedBox(height: 12),
         _MoreTile('Live Absensi', 'Pantau absensi harian, status, lokasi, dan radius.', Icons.monitor_heart_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AttendanceLivePage(session: session)))),
+        _MoreTile('Work Recap', 'Rekap kerja, telat, luar radius, cuti, dan lembur.', Icons.summarize_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => WorkRecapPage(session: session)))),
         _MoreTile('Leave Management', 'Jenis cuti, saldo, rules, dan request cuti.', Icons.event_available_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => LeaveManagementPage(session: session)))),
         _MoreTile('Approval', 'Approve cuti, QR, dan pengajuan.', Icons.fact_check_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ApprovalsPage(session: session, service: service)))),
         _MoreTile('Pengumuman', 'Buat dan publish pengumuman.', Icons.campaign_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AnnouncementsPage(session: session, service: service)))),
