@@ -6,6 +6,7 @@ import '../admin_web_port/admin_web_pages.dart';
 import '../announcements/announcements_page.dart';
 import '../approvals/approvals_page.dart';
 import '../attendance/attendance_corrections_page.dart';
+import '../audit/audit_logs_page.dart';
 import '../notifications/notification_logs_page.dart';
 import '../notifications/notification_settings_page.dart';
 import '../offices/office_radius_page.dart';
@@ -42,7 +43,7 @@ class MorePage extends StatelessWidget {
         _MoreTile('Settings', 'Pengaturan perusahaan dan aplikasi.', Icons.settings_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => SettingsPage(session: session)))),
         if (isOwner) ...[
           _MoreTile('Owner Tools', 'Kelola company, admin, invite, dan status aktif.', Icons.admin_panel_settings_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => OwnerToolsPage(session: session)))),
-          _MoreTile('Audit', 'Log aktivitas admin.', Icons.history_edu_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AuditPage(session: session)))),
+          _MoreTile('Audit', 'Filter dan detail log aktivitas admin.', Icons.history_edu_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AuditLogsPage(session: session)))),
           _MoreTile('Database Health', 'Cek path database penting.', Icons.health_and_safety_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => DatabaseHealthPage(session: session)))),
         ],
         const SizedBox(height: 12),
