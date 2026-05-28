@@ -89,7 +89,31 @@ class AdminService {
     return items;
   }
 
-  Future<void> saveEmployee(AdminSession session, {EmployeeRecord? old, required String name, required String email, required String password, required String nip, required String phone, required String jobTitle, required String officeName, required String groupName, required bool active}) async {
+  Future<String> saveEmployee(
+    AdminSession session, {
+    EmployeeRecord? old,
+    required String name,
+    required String email,
+    required String password,
+    required String nip,
+    required String phone,
+    required String jobTitle,
+    required String officeName,
+    required String groupName,
+    required bool active,
+    String role = 'user',
+    String areaId = '',
+    String officeId = '',
+    String departmentId = '',
+    String subDepartmentId = '',
+    String groupId = '',
+    String timetableId = '',
+    String timetableName = '',
+    String shiftId = '',
+    String shiftName = '',
+    String photoUrl = '',
+    String photoPath = '',
+  }) async {
     if (name.trim().isEmpty) throw Exception('Nama wajib diisi.');
     if (!email.contains('@')) throw Exception('Email tidak valid.');
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -106,6 +130,8 @@ class AdminService {
       }
     }
     if (uid.isEmpty) throw Exception('UID karyawan tidak valid.');
+    final status = active ? 'active' : 'inactive';
+    final normalizedRole = role.trim().isEmpty ? 'user' : role.trim();
     final payload = <String, dynamic>{
       'uid': uid,
       'nama_lengkap': name.trim(),
@@ -114,29 +140,76 @@ class AdminService {
       'email': email.trim(),
       'nip': nip.trim(),
       'phone': phone.trim(),
+      'no_hp': phone.trim(),
       'nomor_hp': phone.trim(),
       'job_title': jobTitle.trim(),
       'jabatan': jobTitle.trim(),
+      'position': jobTitle.trim().isEmpty ? 'USER' : jobTitle.trim(),
+      'area_id': areaId,
+      'office_id': officeId,
+      'department_id': departmentId,
+      'sub_department_id': subDepartmentId,
+      'employee_group_id': groupId,
+      'group_id': groupId,
       'office_name': officeName.trim(),
       'group_name': groupName.trim(),
+      'timetable_id': timetableId,
+      'timetable_name': timetableName,
+      'shift_id': shiftId,
+      'shift_name': shiftName,
       'company_id': session.companyId,
       'company_name': session.companyName,
-      'role': 'employee',
+      'role': normalizedRole,
+      'level': normalizedRole,
       'active': active,
-      'status': active ? 'active' : 'inactive',
-      'status_akun': active ? 'active' : 'inactive',
+      'status': status,
+      'status_akun': status,
+      'profile_completed': true,
+      'photo_url': photoUrl,
+      'photo_path': photoPath,
       'updated_at': now,
       'updated_by': session.uid,
       if (old == null) 'created_at': now,
       if (old == null) 'created_by': session.uid,
+      if (old == null) 'qr_token': '',
+      if (old == null) 'qr_active': false,
+      if (old == null) 'qr_updated_at': 0,
+      if (old == null) 'face_registered': false,
+      if (old == null) 'face_registered_at': null,
+      if (old == null) 'device_id': null,
+      if (old == null) 'device_name': null,
     };
     await _db.ref().update({FirebasePaths.user(uid): payload, FirebasePaths.companyUser(session.companyId, uid): payload});
+    await _firestore.collection('users').doc(uid).set({
+      'uid': uid,
+      'company_id': session.companyId,
+      'role': normalizedRole,
+      'status_akun': status,
+      'nama_lengkap': name.trim(),
+      'email': email.trim(),
+      'nip': nip.trim(),
+      'no_hp': phone.trim(),
+      'position': jobTitle.trim().isEmpty ? 'USER' : jobTitle.trim(),
+      'area_id': areaId,
+      'office_id': officeId,
+      'department_id': departmentId,
+      'sub_department_id': subDepartmentId,
+      'group_id': groupId,
+      'photo_url': photoUrl,
+      'photo_path': photoPath,
+      'updated_at': now,
+    }, SetOptions(merge: true));
+    return uid;
   }
 
   Future<void> setEmployeeActive(AdminSession session, EmployeeRecord employee, bool active) async {
     final now = DateTime.now().millisecondsSinceEpoch;
     final patch = {'active': active, 'status': active ? 'active' : 'inactive', 'status_akun': active ? 'active' : 'inactive', 'updated_at': now, 'updated_by': session.uid};
     await _db.ref().update({FirebasePaths.user(employee.uid): patch, FirebasePaths.companyUser(session.companyId, employee.uid): patch});
+    await _firestore.collection('users').doc(employee.uid).set({
+      'status_akun': active ? 'active' : 'inactive',
+      'updated_at': now,
+    }, SetOptions(merge: true));
   }
 
   Future<List<ApprovalItem>> loadApprovals(AdminSession session) async {

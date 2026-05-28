@@ -1,8 +1,11 @@
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/firebase_paths.dart';
 import '../../core/models.dart';
 import '../../services/admin_service.dart';
+import '../../services/notification_bridge.dart';
+import '../../services/schedule_resolver.dart';
 import '../shared/message_card.dart';
 
 class ApprovalsPage extends StatefulWidget {
@@ -92,31 +95,22 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
       builder: (_) => _NoteSheet(title: '${status == 'approved' ? 'Setujui' : 'Tolak'} ${item.label}'),
     );
     if (note == null) return;
+    if (status == 'rejected' && note.trim().isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Alasan penolakan wajib diisi.')));
+      return;
+    }
     if (deciding) return;
 
     setState(() => deciding = true);
     try {
-      final now = DateTime.now().millisecondsSinceEpoch;
-      final path = item.path(widget.session.companyId);
-      await FirebaseDatabase.instance.ref(path).update({
-        'status': status,
-        'approval_status': status,
-        'approved': status == 'approved',
-        'admin_note': note,
-        'review_note': note,
-        'reviewed_at': now,
-        'reviewed_by': widget.session.uid,
-        'reviewed_by_email': widget.session.email,
-        'reviewed_by_name': widget.session.displayName,
-      });
-      await FirebaseDatabase.instance.ref('audit_logs/${widget.session.companyId}').push().set({
-        'action': '${item.module}_$status',
-        'target_id': item.id,
-        'target_path': path,
-        'actor_uid': widget.session.uid,
-        'actor_email': widget.session.email,
-        'created_at': now,
-      });
+      if (item.module == 'leave') {
+        await _decideLeave(item, status, note.trim());
+      } else if (item.module == 'qr') {
+        await _decideQr(item, status, note.trim());
+      } else {
+        await _decideGeneric(item, status, note.trim());
+      }
       refresh();
     } catch (error) {
       if (!mounted) return;
@@ -124,6 +118,199 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
     } finally {
       if (mounted) setState(() => deciding = false);
     }
+  }
+
+  Future<void> _decideLeave(ApprovalRecord item, String status, String note) async {
+    final companyId = widget.session.companyId;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final path = FirebasePaths.leaveRequest(companyId, item.id);
+    final updates = <String, dynamic>{
+      '$path/status': status,
+      '$path/approval_status': status,
+      '$path/admin_note': note,
+      '$path/updated_at': now,
+    };
+    if (status == 'approved') {
+      updates['$path/approved_by'] = widget.session.uid;
+      updates['$path/approved_by_name'] = widget.session.displayName;
+      updates['$path/approved_at'] = now;
+    } else {
+      updates['$path/rejected_by'] = widget.session.uid;
+      updates['$path/rejected_by_name'] = widget.session.displayName;
+      updates['$path/rejected_at'] = now;
+    }
+
+    await FirebaseDatabase.instance.ref().update(updates);
+    final bridge = NotificationBridge();
+    await bridge.writeAuditLog(
+      companyId,
+      action: status == 'approved' ? 'APPROVE_LEAVE' : 'REJECT_LEAVE',
+      details: 'Request ${item.id}, type ${item.leaveType}, status $status. Admin note: ${note.ifEmpty('-')}',
+      userUid: widget.session.uid,
+      userName: widget.session.displayName,
+      targetPath: path,
+    );
+    if (item.uid.isNotEmpty) {
+      final label = item.label;
+      await bridge.createNotification(
+        uid: item.uid,
+        companyId: companyId,
+        title: status == 'approved' ? '$label Disetujui' : '$label Ditolak',
+        message: note.isNotEmpty ? 'Admin note: $note' : (status == 'approved' ? 'Pengajuan ${label.toLowerCase()} Anda disetujui.' : 'Pengajuan ${label.toLowerCase()} Anda ditolak.'),
+        type: status == 'approved' ? 'success' : 'danger',
+        refType: 'leave_request',
+        refId: item.id,
+      );
+    }
+  }
+
+  Future<void> _decideQr(ApprovalRecord item, String status, String note) async {
+    final companyId = widget.session.companyId;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final path = FirebasePaths.qrRequest(companyId, item.id);
+    final updates = <String, dynamic>{
+      '$path/status': status,
+      '$path/approval_status': status,
+      '$path/admin_note': note,
+      '$path/updated_at': now,
+    };
+    final targetUid = item.targetUid;
+    if (targetUid.isEmpty) throw Exception('Target UID QR request kosong.');
+
+    if (status == 'approved') {
+      final safeDate = item.date == '-' ? '' : item.date;
+      if (safeDate.isEmpty) throw Exception('Tanggal QR request kosong.');
+      final safeTime = item.time.ifEmpty(_timeKey(DateTime.now()));
+      final safeAction = item.actionType.ifEmpty('masuk');
+      final attendancePath = FirebasePaths.attendanceRecord(companyId, targetUid, safeDate, safeAction);
+      final existingAttendance = await FirebaseDatabase.instance.ref(attendancePath).get();
+      if (existingAttendance.exists) {
+        throw Exception('Attendance untuk user, tanggal, dan action ini sudah ada.');
+      }
+
+      final employeeSnap = await FirebaseDatabase.instance.ref(FirebasePaths.companyUser(companyId, targetUid)).get();
+      final employee = _asMap(employeeSnap.value) ?? const <String, dynamic>{};
+      final schedule = await ScheduleResolver().resolveScheduleForUser(companyId: companyId, uid: targetUid, date: safeDate);
+      final radius = _toDouble(item.data['radius_meter'], 0);
+      final distance = _toDouble(item.data['distance_meter'], 0);
+
+      updates['$path/approved_by'] = widget.session.uid;
+      updates['$path/approved_by_name'] = widget.session.displayName;
+      updates['$path/approved_at'] = now;
+      updates[attendancePath] = {
+        'company_id': _read(item.data, const ['company_id']).ifEmpty(companyId),
+        'uid': targetUid,
+        'date': safeDate,
+        'tanggal': safeDate,
+        'time': safeTime,
+        'waktu': safeTime,
+        'action_type': safeAction,
+        'method': 'qr',
+        'source': 'admin_web',
+        'status': 'approved',
+        'validation_status': 'approved',
+        'attendance_status': schedule.attendanceStatus ?? 'hadir',
+        'photo_url': _read(item.data, const ['photo_url']),
+        'photo_path': _read(item.data, const ['photo_path']),
+        'office_id': _read(item.data, const ['office_id']).ifEmpty(_read(employee, const ['office_id'])),
+        'department_id': _read(item.data, const ['department_id']).ifEmpty(_read(employee, const ['department_id'])),
+        'sub_department_id': _read(item.data, const ['sub_department_id']).ifEmpty(_read(employee, const ['sub_department_id'])),
+        'group_id': _read(item.data, const ['group_id']).ifEmpty(_read(employee, const ['group_id'])),
+        'assignment_id': schedule.assignmentId ?? '',
+        'shift_id': schedule.shiftId ?? '',
+        'shift_name': schedule.shiftName ?? '',
+        'timetable_id': schedule.timetableId ?? '',
+        'timetable_name': schedule.timetableName ?? '',
+        'schedule_source': schedule.scheduleSource,
+        'work_start': schedule.workStart ?? '',
+        'work_end': schedule.workEnd ?? '',
+        'check_in_start': schedule.checkInStart ?? '',
+        'check_in_end': schedule.checkInEnd ?? '',
+        'check_out_start': schedule.checkOutStart ?? '',
+        'check_out_end': schedule.checkOutEnd ?? '',
+        'late_tolerance_minute': schedule.lateToleranceMinute ?? 0,
+        'latitude': _toNullableDouble(item.data['latitude']),
+        'longitude': _toNullableDouble(item.data['longitude']),
+        'accuracy': _toDouble(item.data['accuracy'], 0),
+        'office_latitude': _toNullableDouble(item.data['office_latitude']),
+        'office_longitude': _toNullableDouble(item.data['office_longitude']),
+        'distance_meter': distance,
+        'radius_meter': radius,
+        'geofence_status': radius > 0 && distance <= radius ? 'inside' : 'outside',
+        'created_by_qr': true,
+        'proxy_request_id': item.id,
+        'qr_request_id': item.id,
+        'qr_helper_uid': _read(item.data, const ['helper_uid']),
+        'qr_helper_name': _read(item.data, const ['helper_name']),
+        'approved_by': widget.session.uid,
+        'approved_by_name': widget.session.displayName,
+        'approved_at': now,
+        'created_at': now,
+        'updated_at': now,
+      };
+    } else {
+      updates['$path/rejected_by'] = widget.session.uid;
+      updates['$path/rejected_by_name'] = widget.session.displayName;
+      updates['$path/rejected_at'] = now;
+    }
+
+    await FirebaseDatabase.instance.ref().update(updates);
+    final bridge = NotificationBridge();
+    await bridge.writeAuditLog(
+      companyId,
+      action: status == 'approved' ? 'APPROVE_QR' : 'REJECT_QR',
+      details: 'Admin note: ${note.ifEmpty('-')}',
+      userUid: widget.session.uid,
+      userName: widget.session.displayName,
+      targetPath: path,
+    );
+    await bridge.createNotification(
+      uid: targetUid,
+      companyId: companyId,
+      title: status == 'approved' ? 'QR Attendance Disetujui' : 'QR Attendance Ditolak',
+      message: note.isNotEmpty ? 'Admin note: $note' : (status == 'approved' ? 'Kehadiran melalui QR teman disetujui.' : 'Kehadiran melalui QR ditolak.'),
+      type: status == 'approved' ? 'success' : 'danger',
+      refType: 'qr_request',
+      refId: item.id,
+    );
+
+    final helperUid = _read(item.data, const ['helper_uid']);
+    if (helperUid.isNotEmpty) {
+      await bridge.createNotification(
+        uid: helperUid,
+        companyId: companyId,
+        title: status == 'approved' ? 'Approve Scanner QR' : 'Reject Scanner QR',
+        message: 'Pengajuan scan untuk ${item.userName} telah ${status == 'approved' ? 'disetujui' : 'ditolak'}.',
+        type: 'info',
+        refType: 'qr_request',
+        refId: item.id,
+      );
+    }
+  }
+
+  Future<void> _decideGeneric(ApprovalRecord item, String status, String note) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final path = item.path(widget.session.companyId);
+    await FirebaseDatabase.instance.ref(path).update({
+      'status': status,
+      if (item.module == 'correction') 'correction_status': status,
+      'approval_status': status,
+      'approved': status == 'approved',
+      'admin_note': note,
+      'review_note': note,
+      'reviewed_at': now,
+      'reviewed_by': widget.session.uid,
+      'reviewed_by_email': widget.session.email,
+      'reviewed_by_name': widget.session.displayName,
+    });
+    await FirebaseDatabase.instance.ref(FirebasePaths.auditLogs(widget.session.companyId)).push().set({
+      'action': '${item.module}_$status',
+      'target_id': item.id,
+      'target_path': path,
+      'actor_uid': widget.session.uid,
+      'actor_email': widget.session.email,
+      'created_at': now,
+    });
   }
 
   @override
@@ -217,10 +404,14 @@ class ApprovalRecord {
 
   const ApprovalRecord({required this.id, required this.module, required this.label, required this.data, required this.user});
 
-  String get uid => _read(data, const ['uid', 'user_id', 'employee_id']);
-  String get userName => _read(data, const ['employee_name', 'user_name', 'nama_lengkap', 'name']).ifEmpty(_read(user, const ['nama_lengkap', 'display_name', 'name']).ifEmpty(uid.ifEmpty(id)));
+  String get uid => _read(data, const ['uid', 'target_uid', 'user_id', 'employee_id']);
+  String get targetUid => _read(data, const ['target_uid', 'uid', 'user_id', 'employee_id']);
+  String get userName => _read(data, const ['target_name', 'employee_name', 'user_name', 'nama_lengkap', 'name']).ifEmpty(_read(user, const ['nama_lengkap', 'display_name', 'name']).ifEmpty(uid.ifEmpty(id)));
   String get email => _read(data, const ['email']).ifEmpty(_read(user, const ['email']));
   String get date => _read(data, const ['date', 'tanggal', 'start_date', 'attendance_date']).ifEmpty('-');
+  String get time => _read(data, const ['time', 'waktu']);
+  String get actionType => _read(data, const ['action_type', 'action']).ifEmpty('masuk');
+  String get leaveType => _read(data, const ['type', 'jenis', 'leave_type', 'request_type']).ifEmpty('izin').toLowerCase();
   String get reason => _read(data, const ['reason', 'alasan', 'description', 'note']);
   String get rawText => data.values.join(' ');
   String get sortKey => '${data['created_at'] ?? data['submitted_at'] ?? data['date'] ?? ''}$id';
@@ -292,6 +483,22 @@ String _read(Map<String, dynamic> data, List<String> keys) {
     if (value != null && value.toString().trim().isNotEmpty) return value.toString();
   }
   return '';
+}
+
+double _toDouble(Object? value, double fallback) {
+  if (value is num) return value.toDouble();
+  return double.tryParse(value?.toString() ?? '') ?? fallback;
+}
+
+double? _toNullableDouble(Object? value) {
+  if (value == null) return null;
+  if (value is num) return value.toDouble();
+  return double.tryParse(value.toString());
+}
+
+String _timeKey(DateTime value) {
+  String two(int item) => item.toString().padLeft(2, '0');
+  return '${two(value.hour)}:${two(value.minute)}:${two(value.second)}';
 }
 
 extension _StringFallback on String {

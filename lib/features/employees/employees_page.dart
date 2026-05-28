@@ -20,7 +20,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
   late Future<_EmployeeBundle> future;
   String query = '';
   String statusFilter = 'all';
-  String roleFilter = 'employee';
+  String roleFilter = 'all';
 
   @override
   void initState() {
@@ -61,8 +61,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
   List<ManagedEmployee> filter(List<ManagedEmployee> rows) {
     final q = query.trim().toLowerCase();
     return rows.where((employee) {
-      if (statusFilter == 'active' && !employee.active) return false;
-      if (statusFilter == 'inactive' && employee.active) return false;
+      if (statusFilter != 'all' && employee.normalizedStatus != statusFilter) return false;
       if (roleFilter != 'all' && employee.role.toLowerCase() != roleFilter) return false;
       if (q.isEmpty) return true;
       final text = '${employee.name} ${employee.email} ${employee.nip} ${employee.phone} ${employee.jobTitle} ${employee.officeName} ${employee.departmentName} ${employee.groupName}'.toLowerCase();
@@ -85,13 +84,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
   }
 
   Future<void> setActive(ManagedEmployee employee, bool active) async {
-    await FirebaseDatabase.instance.ref('company_users/${widget.session.companyId}/${employee.id}').update({
-      'active': active,
-      'status': active ? 'active' : 'inactive',
-      'status_akun': active ? 'active' : 'inactive',
-      'updated_at': DateTime.now().millisecondsSinceEpoch,
-      'updated_by': widget.session.uid,
-    });
+    await widget.service.setEmployeeActive(widget.session, employee.toEmployeeRecord(), active);
     await FirebaseDatabase.instance.ref('audit_logs/${widget.session.companyId}').push().set({
       'action': active ? 'activate_employee' : 'deactivate_employee',
       'target_id': employee.id,
@@ -112,7 +105,8 @@ class _EmployeesPageState extends State<EmployeesPage> {
         final all = bundle.employees;
         final list = filter(all);
         final active = all.where((e) => e.active).length;
-        final inactive = all.length - active;
+        final inactive = all.where((e) => e.normalizedStatus == 'inactive').length;
+        final pending = all.where((e) => e.normalizedStatus == 'pending').length;
         final admins = all.where((e) => e.role.toLowerCase().contains('admin') || e.role.toLowerCase().contains('owner')).length;
 
         return ListView(
@@ -123,6 +117,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
             Wrap(spacing: 10, runSpacing: 10, children: [
               _MiniStat('Total', all.length, Icons.people_rounded),
               _MiniStat('Aktif', active, Icons.verified_user_rounded),
+              _MiniStat('Pending', pending, Icons.pending_actions_rounded),
               _MiniStat('Nonaktif', inactive, Icons.block_rounded),
               _MiniStat('Admin', admins, Icons.admin_panel_settings_rounded),
             ]),
@@ -139,7 +134,9 @@ class _EmployeesPageState extends State<EmployeesPage> {
                   items: const [
                     DropdownMenuItem(value: 'all', child: Text('Semua')),
                     DropdownMenuItem(value: 'active', child: Text('Aktif')),
+                    DropdownMenuItem(value: 'pending', child: Text('Pending')),
                     DropdownMenuItem(value: 'inactive', child: Text('Nonaktif')),
+                    DropdownMenuItem(value: 'rejected', child: Text('Ditolak')),
                   ],
                   onChanged: (v) => setState(() => statusFilter = v ?? 'all'),
                 ),
@@ -150,12 +147,13 @@ class _EmployeesPageState extends State<EmployeesPage> {
                   value: roleFilter,
                   decoration: const InputDecoration(labelText: 'Role'),
                   items: const [
+                    DropdownMenuItem(value: 'all', child: Text('Semua')),
+                    DropdownMenuItem(value: 'user', child: Text('User')),
                     DropdownMenuItem(value: 'employee', child: Text('Employee')),
                     DropdownMenuItem(value: 'admin', child: Text('Admin')),
                     DropdownMenuItem(value: 'owner', child: Text('Owner')),
-                    DropdownMenuItem(value: 'all', child: Text('Semua')),
                   ],
-                  onChanged: (v) => setState(() => roleFilter = v ?? 'employee'),
+                  onChanged: (v) => setState(() => roleFilter = v ?? 'all'),
                 ),
               ),
             ]),
@@ -204,7 +202,7 @@ class _EmployeeSheetState extends State<_EmployeeSheet> {
   late final TextEditingController nip = TextEditingController(text: widget.employee?.nip ?? '');
   late final TextEditingController phone = TextEditingController(text: widget.employee?.phone ?? '');
   late final TextEditingController job = TextEditingController(text: widget.employee?.jobTitle ?? '');
-  late String role = widget.employee?.role.isNotEmpty == true ? widget.employee!.role : 'employee';
+  late String role = widget.employee?.role.isNotEmpty == true ? widget.employee!.role : 'user';
   late String officeId = widget.employee?.officeId ?? '';
   late String departmentId = widget.employee?.departmentId ?? '';
   late String subDepartmentId = widget.employee?.subDepartmentId ?? '';
@@ -240,7 +238,7 @@ class _EmployeeSheetState extends State<_EmployeeSheet> {
       final timetable = widget.bundle.optionById(widget.bundle.timetables, timetableId);
       final shift = widget.bundle.optionById(widget.bundle.shifts, shiftId);
 
-      await widget.service.saveEmployee(
+      final uid = await widget.service.saveEmployee(
         widget.session,
         old: widget.employee?.toEmployeeRecord(),
         name: name.text,
@@ -252,10 +250,18 @@ class _EmployeeSheetState extends State<_EmployeeSheet> {
         officeName: office?.name ?? '',
         groupName: group?.name ?? '',
         active: active,
+        role: role,
+        officeId: officeId,
+        departmentId: departmentId,
+        subDepartmentId: subDepartmentId,
+        groupId: groupId,
+        timetableId: timetableId,
+        timetableName: timetable?.name ?? '',
+        shiftId: shiftId,
+        shiftName: shift?.name ?? '',
       );
 
-      final uid = widget.employee?.id ?? email.text.trim().replaceAll('.', '_').replaceAll('@', '_');
-      await FirebaseDatabase.instance.ref('company_users/${widget.session.companyId}/$uid').update({
+      final supplemental = {
         'uid': uid,
         'company_id': widget.session.companyId,
         'display_name': name.text.trim(),
@@ -263,6 +269,7 @@ class _EmployeeSheetState extends State<_EmployeeSheet> {
         'email': email.text.trim(),
         'nip': nip.text.trim(),
         'phone': phone.text.trim(),
+        'no_hp': phone.text.trim(),
         'job_title': job.text.trim(),
         'jabatan': job.text.trim(),
         'role': role,
@@ -287,6 +294,10 @@ class _EmployeeSheetState extends State<_EmployeeSheet> {
         'updated_by': widget.session.uid,
         if (widget.employee == null) 'created_at': DateTime.now().millisecondsSinceEpoch,
         if (widget.employee == null) 'created_by': widget.session.uid,
+      };
+      await FirebaseDatabase.instance.ref().update({
+        'users/$uid': supplemental,
+        'company_users/${widget.session.companyId}/$uid': supplemental,
       });
 
       await FirebaseDatabase.instance.ref('audit_logs/${widget.session.companyId}').push().set({
@@ -332,6 +343,7 @@ class _EmployeeSheetState extends State<_EmployeeSheet> {
               value: role,
               decoration: const InputDecoration(labelText: 'Role'),
               items: const [
+                DropdownMenuItem(value: 'user', child: Text('User')),
                 DropdownMenuItem(value: 'employee', child: Text('Employee')),
                 DropdownMenuItem(value: 'admin', child: Text('Admin')),
                 DropdownMenuItem(value: 'owner', child: Text('Owner')),
@@ -424,9 +436,9 @@ class ManagedEmployee {
   String get name => _read(data, const ['display_name', 'nama_lengkap', 'name']).ifEmpty(id);
   String get email => _read(data, const ['email']);
   String get nip => _read(data, const ['nip']);
-  String get phone => _read(data, const ['phone', 'phone_number', 'nomor_hp']);
+  String get phone => _read(data, const ['phone', 'no_hp', 'phone_number', 'nomor_hp']);
   String get jobTitle => _read(data, const ['job_title', 'jabatan', 'position']);
-  String get role => _read(data, const ['role', 'level']).ifEmpty('employee');
+  String get role => _read(data, const ['role', 'level']).ifEmpty('user');
   String get officeId => _read(data, const ['office_id', 'kantor_id']);
   String get officeName => _read(data, const ['office_name', 'kantor', 'nama_kantor']);
   String get departmentId => _read(data, const ['department_id']);
@@ -436,10 +448,19 @@ class ManagedEmployee {
   String get groupName => _read(data, const ['group_name', 'employee_group_name']);
   String get timetableId => _read(data, const ['timetable_id']);
   String get shiftId => _read(data, const ['shift_id']);
-  bool get active => data['active'] != false && data['status']?.toString().toLowerCase() != 'inactive' && data['status_akun']?.toString().toLowerCase() != 'inactive';
+  String get normalizedStatus {
+    final status = _read(data, const ['status_akun', 'status']).toLowerCase();
+    if (status.contains('reject') || status.contains('tolak')) return 'rejected';
+    if (status.contains('pending') || status.contains('menunggu')) return 'pending';
+    if (status.contains('inactive') || status.contains('nonaktif')) return 'inactive';
+    if (status.contains('active') || status.contains('aktif') || status.contains('approved')) return 'active';
+    return data['active'] == false ? 'inactive' : 'active';
+  }
+
+  bool get active => data['active'] != false && normalizedStatus == 'active';
 
   EmployeeRecord toEmployeeRecord() {
-    return EmployeeRecord(id: id, name: name, email: email, nip: nip, phone: phone, jobTitle: jobTitle, officeName: officeName, groupName: groupName, active: active);
+    return EmployeeRecord(uid: id, name: name, email: email, nip: nip, phone: phone, jobTitle: jobTitle, groupId: groupId, groupName: groupName, officeName: officeName, active: active);
   }
 }
 

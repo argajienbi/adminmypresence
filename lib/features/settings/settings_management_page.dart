@@ -2,6 +2,7 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/models.dart';
+import '../../services/firestore_user_sync_service.dart';
 import '../shared/message_card.dart';
 
 class SettingsManagementPage extends StatefulWidget {
@@ -228,6 +229,27 @@ class _SettingsManagementPageState extends State<SettingsManagementPage> {
     }
   }
 
+  Future<void> syncFirestoreUsers() async {
+    setState(() => saving = true);
+    try {
+      final result = await FirestoreUserSyncService().sync(companyId: widget.session.companyId);
+      await FirebaseDatabase.instance.ref('audit_logs/${widget.session.companyId}').push().set({
+        'action': 'SYNC_FIRESTORE_USERS',
+        'details': 'Synced ${result.synced}/${result.total} users',
+        'actor_uid': widget.session.uid,
+        'actor_email': widget.session.email,
+        'created_at': DateTime.now().millisecondsSinceEpoch,
+      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Sync Firestore selesai: ${result.synced}/${result.total} user.')));
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
   Future<void> _update(String path, Map<String, dynamic> values) async {
     setState(() => saving = true);
     try {
@@ -276,6 +298,7 @@ class _SettingsManagementPageState extends State<SettingsManagementPage> {
                 _SettingsTile(title: 'Aturan Absensi', subtitle: 'Radius ${data.defaultRadius.toStringAsFixed(0)} m • Toleransi ${data.lateTolerance} menit • GPS ${data.minGpsAccuracy.toStringAsFixed(0)} m', icon: Icons.access_time_filled_rounded, onTap: () => saveAttendance(data)),
                 _SettingsTile(title: 'Policy Approval', subtitle: 'Cuti ${_onOff(data.leaveApprovalEnabled)} • QR ${_onOff(data.qrApprovalEnabled)} • Koreksi ${_onOff(data.correctionApprovalEnabled)}', icon: Icons.fact_check_rounded, onTap: () => saveApproval(data)),
                 _SettingsTile(title: 'App Config', subtitle: '${data.appName} • min ${data.minAppVersion.ifEmpty('-')} • maintenance ${_onOff(data.maintenanceMode)}', icon: Icons.app_settings_alt_rounded, onTap: () => saveAppConfig(data)),
+                _SettingsTile(title: 'Sync Users ke Firestore', subtitle: 'Mirror data RTDB /users ke koleksi Firestore users', icon: Icons.cloud_sync_rounded, onTap: syncFirestoreUsers),
                 _SettingsTile(title: 'Raw Company Settings', subtitle: '${data.companySettings.length} root settings item(s)', icon: Icons.data_object_rounded, onTap: () => _showRaw('Company Settings', data.companySettings)),
                 _SettingsTile(title: 'Raw App Config', subtitle: '${data.appConfig.length} app config item(s)', icon: Icons.storage_rounded, onTap: () => _showRaw('App Config', data.appConfig)),
               ],

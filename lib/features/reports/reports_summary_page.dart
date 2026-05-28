@@ -4,6 +4,8 @@ import 'package:excel/excel.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
 
 import '../../core/models.dart';
@@ -194,6 +196,65 @@ class _ReportsSummaryPageState extends State<ReportsSummaryPage> {
     }
   }
 
+  Future<void> exportPdf(List<EmployeeReportSummary> rows) async {
+    if (exporting || rows.isEmpty) return;
+    setState(() => exporting = true);
+    try {
+      final doc = pw.Document();
+      doc.addPage(
+        pw.MultiPage(
+          pageFormat: PdfPageFormat.a4.landscape,
+          margin: const pw.EdgeInsets.all(24),
+          build: (_) => [
+            pw.Text('Summary Absensi', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
+            pw.SizedBox(height: 8),
+            pw.Text('Company: ${widget.session.companyName} | Total karyawan: ${rows.length}'),
+            pw.SizedBox(height: 16),
+            pw.TableHelper.fromTextArray(
+              headers: const ['Nama', 'NIP', 'Kantor', 'Hari', 'Masuk', 'Pulang', 'Telat', 'Luar', 'Izin', 'Sakit', 'Cuti', 'Lembur'],
+              data: rows
+                  .map((row) => [
+                        row.name,
+                        row.nip,
+                        row.officeName,
+                        row.totalDays.toString(),
+                        row.checkIn.toString(),
+                        row.checkOut.toString(),
+                        row.late.toString(),
+                        row.outsideRadius.toString(),
+                        row.permission.toString(),
+                        row.sick.toString(),
+                        row.leave.toString(),
+                        row.overtime.toString(),
+                      ])
+                  .toList(),
+              headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+              headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
+              cellStyle: const pw.TextStyle(fontSize: 8),
+              cellAlignment: pw.Alignment.centerLeft,
+            ),
+          ],
+        ),
+      );
+      final directory = await getTemporaryDirectory();
+      final file = File('${directory.path}/summary_absensi_${DateTime.now().millisecondsSinceEpoch}.pdf');
+      await file.writeAsBytes(await doc.save(), flush: true);
+      await Share.shareXFiles([XFile(file.path)], text: 'Summary absensi MyPresence');
+      await FirebaseDatabase.instance.ref('audit_logs/${widget.session.companyId}').push().set({
+        'action': 'EXPORT_SUMMARY_PDF',
+        'details': 'Export summary report PDF',
+        'actor_uid': widget.session.uid,
+        'actor_email': widget.session.email,
+        'created_at': DateTime.now().millisecondsSinceEpoch,
+      });
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+    } finally {
+      if (mounted) setState(() => exporting = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -219,7 +280,13 @@ class _ReportsSummaryPageState extends State<ReportsSummaryPage> {
                 Expanded(child: OutlinedButton.icon(onPressed: pickEnd, icon: const Icon(Icons.event_rounded), label: Text(endDate == null ? 'Selesai' : _date(endDate!)))),
               ]),
               const SizedBox(height: 12),
-              FilledButton.icon(onPressed: rows.isEmpty || exporting ? null : () => exportExcel(rows), icon: const Icon(Icons.file_download_rounded), label: Text(exporting ? 'Membuat Excel...' : 'Export Excel Summary')),
+              Row(
+                children: [
+                  Expanded(child: FilledButton.icon(onPressed: rows.isEmpty || exporting ? null : () => exportExcel(rows), icon: const Icon(Icons.file_download_rounded), label: Text(exporting ? 'Membuat...' : 'Export Excel'))),
+                  const SizedBox(width: 10),
+                  Expanded(child: OutlinedButton.icon(onPressed: rows.isEmpty || exporting ? null : () => exportPdf(rows), icon: const Icon(Icons.picture_as_pdf_rounded), label: Text(exporting ? 'Membuat...' : 'Export PDF'))),
+                ],
+              ),
               const SizedBox(height: 12),
               if (snapshot.connectionState == ConnectionState.waiting)
                 const Padding(padding: EdgeInsets.all(32), child: Center(child: CircularProgressIndicator()))

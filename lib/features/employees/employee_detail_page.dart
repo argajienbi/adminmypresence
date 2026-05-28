@@ -2,6 +2,7 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/models.dart';
+import '../../services/notification_bridge.dart';
 import '../shared/message_card.dart';
 
 class EmployeeDetailPage extends StatefulWidget {
@@ -26,6 +27,72 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
   }
 
   void refresh() => setState(() => future = loadDetail());
+
+  Future<void> resetFace() async {
+    final companyId = widget.session.companyId;
+    final uid = widget.employeeId;
+    final ok = await _confirm('Reset Data Wajah', 'Karyawan harus mendaftarkan wajah ulang sebelum absensi berikutnya.');
+    if (ok != true) return;
+    final updates = <String, dynamic>{
+      'company_users/$companyId/$uid/face_registered': false,
+      'company_users/$companyId/$uid/face_registered_at': null,
+      'companies/$companyId/face_descriptors/$uid': null,
+    };
+    await FirebaseDatabase.instance.ref().update(updates);
+    final bridge = NotificationBridge();
+    await bridge.writeAuditLog(
+      companyId,
+      action: 'RESET_FACE_DATA',
+      details: 'Menghapus data wajah karyawan $uid',
+      userUid: widget.session.uid,
+      userName: widget.session.displayName,
+      targetPath: 'company_users/$companyId/$uid',
+    );
+    await bridge.createNotification(
+      uid: uid,
+      companyId: companyId,
+      title: 'Pendaftaran Wajah Ulang Diperlukan',
+      message: 'Data wajah Anda telah di-reset oleh admin. Harap mendaftar ulang wajah sebelum absensi berikutnya.',
+      type: 'warning',
+      refType: 'face_reset',
+      refId: uid,
+    );
+    refresh();
+  }
+
+  Future<void> resetDevice() async {
+    final companyId = widget.session.companyId;
+    final uid = widget.employeeId;
+    final ok = await _confirm('Reset Perangkat', 'Data perangkat karyawan akan dikosongkan.');
+    if (ok != true) return;
+    await FirebaseDatabase.instance.ref().update({
+      'company_users/$companyId/$uid/device_id': null,
+      'company_users/$companyId/$uid/device_name': null,
+    });
+    await NotificationBridge().writeAuditLog(
+      companyId,
+      action: 'RESET_DEVICE_DATA',
+      details: 'Mereset device karyawan $uid',
+      userUid: widget.session.uid,
+      userName: widget.session.displayName,
+      targetPath: 'company_users/$companyId/$uid',
+    );
+    refresh();
+  }
+
+  Future<bool?> _confirm(String title, String message) {
+    return showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Batal')),
+          FilledButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Lanjutkan')),
+        ],
+      ),
+    );
+  }
 
   Future<EmployeeDetailBundle> loadDetail() async {
     final companyId = widget.session.companyId;
@@ -148,7 +215,22 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Detail Karyawan'), actions: [IconButton(onPressed: refresh, icon: const Icon(Icons.refresh_rounded))]),
+      appBar: AppBar(
+        title: const Text('Detail Karyawan'),
+        actions: [
+          PopupMenuButton<String>(
+            onSelected: (value) {
+              if (value == 'face') resetFace();
+              if (value == 'device') resetDevice();
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'face', child: Text('Reset Data Wajah')),
+              PopupMenuItem(value: 'device', child: Text('Reset Perangkat')),
+            ],
+          ),
+          IconButton(onPressed: refresh, icon: const Icon(Icons.refresh_rounded)),
+        ],
+      ),
       body: FutureBuilder<EmployeeDetailBundle>(
         future: future,
         builder: (context, snapshot) {

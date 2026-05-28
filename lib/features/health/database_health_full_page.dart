@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 
@@ -17,6 +18,7 @@ class _DatabaseHealthFullPageState extends State<DatabaseHealthFullPage> {
   late Future<List<DatabaseHealthItem>> future;
   String filter = 'all';
   String query = '';
+  bool resetting = false;
 
   @override
   void initState() {
@@ -127,6 +129,85 @@ class _DatabaseHealthFullPageState extends State<DatabaseHealthFullPage> {
     return result;
   }
 
+  Future<void> openResetDummyData() async {
+    if (!widget.session.isOwner) return;
+    final selected = {for (final option in _resetOptions) option.key: option.defaultChecked};
+    final confirm = TextEditingController();
+    final ok = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => StatefulBuilder(
+        builder: (context, setSheetState) => SafeArea(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(18, 18, 18, 18 + MediaQuery.viewInsetsOf(context).bottom),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('Reset Data Dummy', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 12),
+                  ..._resetOptions.map((option) => CheckboxListTile(
+                        value: selected[option.key] ?? false,
+                        title: Text(option.label),
+                        subtitle: Text(option.path(widget.session.companyId)),
+                        onChanged: (value) => setSheetState(() => selected[option.key] = value ?? false),
+                      )),
+                  const SizedBox(height: 12),
+                  TextField(controller: confirm, decoration: const InputDecoration(labelText: 'Ketik RESET DATABASE')),
+                  const SizedBox(height: 12),
+                  FilledButton(
+                    onPressed: () {
+                      if (confirm.text.trim() == 'RESET DATABASE') Navigator.of(context).pop(true);
+                    },
+                    child: const Text('Reset Data Dummy'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    if (ok != true) return;
+    setState(() => resetting = true);
+    try {
+      final companyId = widget.session.companyId;
+      final deleted = <String>[];
+      for (final option in _resetOptions.where((option) => selected[option.key] == true)) {
+        final path = option.path(companyId);
+        if (option.firestore) {
+          final snap = await FirebaseFirestore.instance.collection(path).get();
+          final batch = FirebaseFirestore.instance.batch();
+          for (final doc in snap.docs) {
+            batch.delete(doc.reference);
+          }
+          await batch.commit();
+          deleted.add('firestore:$path');
+        } else {
+          await FirebaseDatabase.instance.ref(path).remove();
+          deleted.add(path);
+        }
+      }
+      await FirebaseDatabase.instance.ref('audit_logs/$companyId/owner_reset_${DateTime.now().millisecondsSinceEpoch}').set({
+        'action': 'OWNER_RESET_DUMMY_DATA',
+        'deleted_paths': deleted,
+        'actor_uid': widget.session.uid,
+        'actor_email': widget.session.email,
+        'created_at': DateTime.now().millisecondsSinceEpoch,
+      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Reset selesai: ${deleted.length} path.')));
+      refresh();
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+    } finally {
+      if (mounted) setState(() => resetting = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -146,6 +227,11 @@ class _DatabaseHealthFullPageState extends State<DatabaseHealthFullPage> {
                 message: 'OK: ${c['ok']} • Empty: ${c['empty']} • Missing: ${c['missing']} • Error: ${c['error']}',
                 icon: Icons.health_and_safety_rounded,
               ),
+              if (resetting) const Padding(padding: EdgeInsets.only(top: 12), child: LinearProgressIndicator()),
+              if (widget.session.isOwner) ...[
+                const SizedBox(height: 12),
+                FilledButton.icon(onPressed: resetting ? null : openResetDummyData, icon: const Icon(Icons.delete_sweep_rounded), label: const Text('Reset Data Dummy')),
+              ],
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
                 value: filter,
@@ -243,6 +329,38 @@ class DatabaseHealthItem {
     }
   }
 }
+
+const _resetOptions = [
+  _ResetOption('attendance', 'Absensi', false, false, _rtdbAttendance),
+  _ResetOption('leave_requests', 'Pengajuan Cuti/Izin', false, false, _rtdbLeave),
+  _ResetOption('qr_requests', 'QR Attendance Requests', false, false, _rtdbQr),
+  _ResetOption('corrections', 'Koreksi Absensi', false, false, _rtdbCorrections),
+  _ResetOption('overtime_requests', 'Overtime Requests', false, false, _rtdbOvertimeRequests),
+  _ResetOption('notifications', 'Notification Logs RTDB', false, false, _rtdbNotificationLogs),
+  _ResetOption('notification_queue', 'Notification Queue Firestore', true, false, _firestoreNotificationQueue),
+  _ResetOption('report_cache', 'Report Cache RTDB', false, false, _rtdbReportCache),
+  _ResetOption('storage_index', 'Storage Index RTDB', false, false, _rtdbStorageIndex),
+];
+
+class _ResetOption {
+  const _ResetOption(this.key, this.label, this.firestore, this.defaultChecked, this.path);
+
+  final String key;
+  final String label;
+  final bool firestore;
+  final bool defaultChecked;
+  final String Function(String companyId) path;
+}
+
+String _rtdbAttendance(String companyId) => 'attendance/$companyId';
+String _rtdbLeave(String companyId) => 'leave_requests/$companyId';
+String _rtdbQr(String companyId) => 'qr_attendance_requests/$companyId';
+String _rtdbCorrections(String companyId) => 'attendance_corrections/$companyId';
+String _rtdbOvertimeRequests(String companyId) => 'overtime_requests/$companyId';
+String _rtdbNotificationLogs(String companyId) => 'notification_logs/$companyId';
+String _rtdbReportCache(String companyId) => 'report_cache/$companyId';
+String _rtdbStorageIndex(String companyId) => 'storage_index/$companyId';
+String _firestoreNotificationQueue(String companyId) => 'companies/$companyId/notification_queue';
 
 class _DetailRow extends StatelessWidget {
   final String label;

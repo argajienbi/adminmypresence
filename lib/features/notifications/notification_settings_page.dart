@@ -1,7 +1,9 @@
-import 'package:firebase_database/firebase_database.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/firebase_paths.dart';
 import '../../core/models.dart';
+import '../../services/notification_bridge.dart';
 import '../shared/message_card.dart';
 
 class NotificationSettingsPageFull extends StatefulWidget {
@@ -29,22 +31,22 @@ class _NotificationSettingsPageFullState extends State<NotificationSettingsPageF
 
   Future<_NotificationBundle> load() async {
     final companyId = widget.session.companyId;
-    final db = FirebaseDatabase.instance;
     final results = await Future.wait([
-      db.ref('companies/$companyId/notification_settings').get(),
-      db.ref('companies/$companyId/notification_queue').get(),
-      db.ref('notification_logs/$companyId').get(),
+      FirebaseFirestore.instance.doc(FirestorePaths.notificationSettings(companyId)).get(),
+      FirebaseFirestore.instance.collection(FirestorePaths.notificationQueue(companyId)).get(),
+      FirebaseFirestore.instance.collection(FirestorePaths.notificationLogs(companyId)).get(),
     ]);
 
-    final settings = _asMap(results[0].value) ?? const <String, dynamic>{};
-    final queue = _asMap(results[1].value) ?? const <String, dynamic>{};
-    final logs = _asMap(results[2].value) ?? const <String, dynamic>{};
+    final settingsDoc = results[0] as DocumentSnapshot<Map<String, dynamic>>;
+    final queueSnap = results[1] as QuerySnapshot<Map<String, dynamic>>;
+    final logsSnap = results[2] as QuerySnapshot<Map<String, dynamic>>;
+    final settings = settingsDoc.data() ?? const <String, dynamic>{};
 
     return _NotificationBundle(
       settings: _NotificationSettings.fromMap(settings),
-      queueCount: queue.length,
-      logCount: logs.length,
-      logs: logs.entries.map((entry) => _NotificationLog(id: entry.key, data: _asMap(entry.value) ?? const <String, dynamic>{})).toList()
+      queueCount: queueSnap.docs.length,
+      logCount: logsSnap.docs.length,
+      logs: logsSnap.docs.map((doc) => _NotificationLog(id: doc.id, data: doc.data())).toList()
         ..sort((a, b) => b.sortKey.compareTo(a.sortKey)),
     );
   }
@@ -52,18 +54,11 @@ class _NotificationSettingsPageFullState extends State<NotificationSettingsPageF
   Future<void> saveSettings(_NotificationSettings settings) async {
     setState(() => saving = true);
     try {
-      await FirebaseDatabase.instance.ref('companies/${widget.session.companyId}/notification_settings').update({
-        'attendance_enabled': settings.attendanceEnabled,
-        'approval_enabled': settings.approvalEnabled,
-        'announcement_enabled': settings.announcementEnabled,
-        'schedule_enabled': settings.scheduleEnabled,
-        'outside_radius_enabled': settings.outsideRadiusEnabled,
-        'late_enabled': settings.lateEnabled,
-        'daily_summary_enabled': settings.dailySummaryEnabled,
-        'daily_summary_time': settings.dailySummaryTime,
+      await FirebaseFirestore.instance.doc(FirestorePaths.notificationSettings(widget.session.companyId)).set({
+        ...settings.toMap(),
         'updated_at': DateTime.now().millisecondsSinceEpoch,
         'updated_by': widget.session.uid,
-      });
+      }, SetOptions(merge: true));
       refresh();
     } catch (error) {
       if (!mounted) return;
@@ -76,6 +71,7 @@ class _NotificationSettingsPageFullState extends State<NotificationSettingsPageF
   Future<void> addTestQueue() async {
     final title = TextEditingController(text: 'Test Notification');
     final body = TextEditingController(text: 'Pesan test dari Admin MyPresence');
+    final uid = TextEditingController();
 
     final ok = await showModalBottomSheet<bool>(
       context: context,
@@ -92,6 +88,8 @@ class _NotificationSettingsPageFullState extends State<NotificationSettingsPageF
               TextField(controller: title, decoration: const InputDecoration(labelText: 'Judul')),
               const SizedBox(height: 10),
               TextField(controller: body, decoration: const InputDecoration(labelText: 'Pesan')),
+              const SizedBox(height: 10),
+              TextField(controller: uid, decoration: const InputDecoration(labelText: 'UID target karyawan')),
               const SizedBox(height: 12),
               FilledButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Tambahkan')),
             ],
@@ -100,18 +98,16 @@ class _NotificationSettingsPageFullState extends State<NotificationSettingsPageF
       ),
     );
 
-    if (ok == true) {
-      final ref = FirebaseDatabase.instance.ref('companies/${widget.session.companyId}/notification_queue').push();
-      await ref.set({
-        'id': ref.key,
-        'title': title.text.trim(),
-        'body': body.text.trim(),
-        'status': 'pending',
-        'type': 'manual_test',
-        'created_at': DateTime.now().millisecondsSinceEpoch,
-        'created_by': widget.session.uid,
-        'created_by_email': widget.session.email,
-      });
+    if (ok == true && uid.text.trim().isNotEmpty) {
+      await NotificationBridge().createNotification(
+        uid: uid.text.trim(),
+        companyId: widget.session.companyId,
+        title: title.text.trim(),
+        message: body.text.trim(),
+        type: 'info',
+        refType: 'manual_test',
+        refId: 'test_${DateTime.now().millisecondsSinceEpoch}',
+      );
       refresh();
     }
   }
@@ -254,15 +250,39 @@ class _NotificationSettings {
 
   factory _NotificationSettings.fromMap(Map<String, dynamic> data) {
     return _NotificationSettings(
-      attendanceEnabled: _bool(data['attendance_enabled'], true),
-      approvalEnabled: _bool(data['approval_enabled'], true),
-      announcementEnabled: _bool(data['announcement_enabled'], true),
-      scheduleEnabled: _bool(data['schedule_enabled'], true),
+      attendanceEnabled: _bool(data['attendance_reminder_enabled'] ?? data['attendance_enabled'], true),
+      approvalEnabled: _bool(data['approval_push_enabled'] ?? data['approval_enabled'], true),
+      announcementEnabled: _bool(data['announcement_push_enabled'] ?? data['announcement_enabled'], true),
+      scheduleEnabled: _bool(data['schedule_change_push_enabled'] ?? data['schedule_enabled'], true),
       outsideRadiusEnabled: _bool(data['outside_radius_enabled'], true),
       lateEnabled: _bool(data['late_enabled'], true),
       dailySummaryEnabled: _bool(data['daily_summary_enabled'], false),
       dailySummaryTime: data['daily_summary_time']?.toString() ?? '08:00',
     );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'push_enabled': true,
+      'in_app_enabled': true,
+      'attendance_reminder_enabled': attendanceEnabled,
+      'pre_check_in_enabled': attendanceEnabled,
+      'pre_check_in_minutes': 15,
+      'missed_check_in_enabled': attendanceEnabled,
+      'missed_check_in_minutes': 10,
+      'pre_check_out_enabled': attendanceEnabled,
+      'pre_check_out_minutes': 15,
+      'missed_check_out_enabled': attendanceEnabled,
+      'missed_check_out_minutes': 10,
+      'announcement_push_enabled': announcementEnabled,
+      'approval_push_enabled': approvalEnabled,
+      'schedule_change_push_enabled': scheduleEnabled,
+      'holiday_notice_push_enabled': scheduleEnabled,
+      'outside_radius_enabled': outsideRadiusEnabled,
+      'late_enabled': lateEnabled,
+      'daily_summary_enabled': dailySummaryEnabled,
+      'daily_summary_time': dailySummaryTime,
+    };
   }
 
   _NotificationSettings copyWith({bool? attendanceEnabled, bool? approvalEnabled, bool? announcementEnabled, bool? scheduleEnabled, bool? outsideRadiusEnabled, bool? lateEnabled, bool? dailySummaryEnabled, String? dailySummaryTime}) {
@@ -288,11 +308,6 @@ class _NotificationLog {
   String get title => _read(data, const ['title', 'type', 'event']).ifEmpty(id);
   String get subtitle => '${_read(data, const ['body', 'message', 'status']).ifEmpty('-')} • ${data['created_at'] ?? data['sent_at'] ?? ''}';
   String get sortKey => '${data['created_at'] ?? data['sent_at'] ?? ''}$id';
-}
-
-Map<String, dynamic>? _asMap(Object? value) {
-  if (value is Map) return value.map((key, item) => MapEntry(key.toString(), item));
-  return null;
 }
 
 String _read(Map<String, dynamic> data, List<String> keys) {

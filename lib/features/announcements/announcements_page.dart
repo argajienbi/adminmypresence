@@ -1,8 +1,11 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/firebase_paths.dart';
 import '../../core/models.dart';
 import '../../services/admin_service.dart';
+import '../../services/notification_bridge.dart';
 import '../shared/message_card.dart';
 
 class AnnouncementsPage extends StatefulWidget {
@@ -31,11 +34,18 @@ class _AnnouncementsPageState extends State<AnnouncementsPage> {
   }
 
   Future<List<AnnouncementItem>> loadItems() async {
-    final snap = await FirebaseDatabase.instance.ref('announcements/${widget.session.companyId}').get();
-    final data = _asMap(snap.value) ?? const <String, dynamic>{};
     final rows = <AnnouncementItem>[];
-    for (final entry in data.entries) {
-      rows.add(AnnouncementItem(id: entry.key, data: _asMap(entry.value) ?? const <String, dynamic>{}));
+    final firestoreSnap = await FirebaseFirestore.instance.collection(FirestorePaths.announcements(widget.session.companyId)).get();
+    for (final doc in firestoreSnap.docs) {
+      rows.add(AnnouncementItem(id: doc.id, data: doc.data(), source: 'firestore'));
+    }
+
+    if (rows.isEmpty) {
+      final snap = await FirebaseDatabase.instance.ref(FirebasePaths.announcements(widget.session.companyId)).get();
+      final data = _asMap(snap.value) ?? const <String, dynamic>{};
+      for (final entry in data.entries) {
+        rows.add(AnnouncementItem(id: entry.key, data: _asMap(entry.value) ?? const <String, dynamic>{}, source: 'rtdb'));
+      }
     }
     rows.sort((a, b) => b.sortKey.compareTo(a.sortKey));
     return rows;
@@ -48,7 +58,7 @@ class _AnnouncementsPageState extends State<AnnouncementsPage> {
       if (statusFilter == 'draft' && item.published) return false;
       if (statusFilter == 'inactive' && item.active) return false;
       if (q.isEmpty) return true;
-      final text = '${item.title} ${item.message} ${item.target} ${item.status}'.toLowerCase();
+      final text = '${item.title} ${item.message} ${item.targetType} ${item.targetIds.join(' ')} ${item.status}'.toLowerCase();
       return text.contains(q);
     }).toList();
   }
@@ -64,40 +74,71 @@ class _AnnouncementsPageState extends State<AnnouncementsPage> {
 
   Future<void> setPublished(AnnouncementItem item, bool published) async {
     final now = DateTime.now().millisecondsSinceEpoch;
-    await FirebaseDatabase.instance.ref('announcements/${widget.session.companyId}/${item.id}').update({
-      'published': published,
+    await FirebaseFirestore.instance.doc(FirestorePaths.announcement(widget.session.companyId, item.id)).set({
       'status': published ? 'published' : 'draft',
       'active': published,
       'published_at': published ? now : null,
       'updated_at': now,
       'updated_by': widget.session.uid,
-    });
-    if (published) await _queueNotification(item.title, item.message, item.target, item.id);
-    await _audit(published ? 'publish_announcement' : 'unpublish_announcement', item.id);
+    }, SetOptions(merge: true));
+    if (published && item.sendPush) {
+      final targetUids = await _resolveTargetUids(item.targetType, item.targetIds);
+      await NotificationBridge().createNotificationForUsers(
+        companyId: widget.session.companyId,
+        uids: targetUids,
+        title: item.title,
+        message: item.message,
+        type: item.type,
+        refType: 'announcement',
+        refId: item.id,
+        data: {'announcement_id': item.id, 'target_type': item.targetType},
+      );
+      await NotificationBridge().writeNotificationLog(widget.session.companyId, {
+        'action': 'announcement_push_queue_created',
+        'announcement_id': item.id,
+        'target_count': targetUids.length,
+        'queue_count': targetUids.length,
+        'created_by': widget.session.uid,
+        'created_by_name': widget.session.displayName,
+      });
+    }
+    await _audit(published ? 'announcement_publish' : 'announcement_unpublish', item.id);
     refresh();
   }
 
-  Future<void> _queueNotification(String title, String body, String target, String announcementId) async {
-    final ref = FirebaseDatabase.instance.ref('companies/${widget.session.companyId}/notification_queue').push();
-    await ref.set({
-      'id': ref.key,
-      'type': 'announcement',
-      'announcement_id': announcementId,
-      'title': title,
-      'body': body,
-      'target': target,
-      'status': 'pending',
-      'created_at': DateTime.now().millisecondsSinceEpoch,
-      'created_by': widget.session.uid,
-      'created_by_email': widget.session.email,
-    });
+  Future<List<String>> _resolveTargetUids(String targetType, List<String> targetIds) async {
+    final snap = await FirebaseDatabase.instance.ref(FirebasePaths.companyUsers(widget.session.companyId)).get();
+    final data = _asMap(snap.value) ?? const <String, dynamic>{};
+    final safeIds = targetIds.map((item) => item.toString()).toSet();
+    final uids = <String>[];
+    for (final entry in data.entries) {
+      final employee = _asMap(entry.value) ?? const <String, dynamic>{};
+      if (!_isActiveEmployee(employee)) continue;
+      final uid = _read(employee, const ['uid']).ifEmpty(entry.key);
+      if (targetType == 'all') {
+        uids.add(uid);
+      } else if (targetType == 'user' && safeIds.contains(uid)) {
+        uids.add(uid);
+      } else if (targetType == 'office' && safeIds.contains(_read(employee, const ['office_id', 'officeId']))) {
+        uids.add(uid);
+      } else if (targetType == 'area' && safeIds.contains(_read(employee, const ['area_id', 'areaId']))) {
+        uids.add(uid);
+      } else if (targetType == 'department' && safeIds.contains(_read(employee, const ['department_id', 'departmentId']))) {
+        uids.add(uid);
+      } else if (targetType == 'sub_department' && safeIds.contains(_read(employee, const ['sub_department_id', 'subDepartmentId']))) {
+        uids.add(uid);
+      } else if (targetType == 'group' && safeIds.contains(_read(employee, const ['group_id', 'groupId']))) {
+        uids.add(uid);
+      }
+    }
+    return uids.toSet().toList();
   }
 
   Future<void> _audit(String action, String id) async {
-    await FirebaseDatabase.instance.ref('audit_logs/${widget.session.companyId}').push().set({
+    await FirebaseDatabase.instance.ref(FirebasePaths.auditLogs(widget.session.companyId)).push().set({
       'action': action,
       'target_id': id,
-      'target_path': 'announcements/${widget.session.companyId}/$id',
+      'target_path': FirestorePaths.announcement(widget.session.companyId, id),
       'actor_uid': widget.session.uid,
       'actor_email': widget.session.email,
       'created_at': DateTime.now().millisecondsSinceEpoch,
@@ -148,7 +189,7 @@ class _AnnouncementsPageState extends State<AnnouncementsPage> {
                       child: ListTile(
                         leading: CircleAvatar(child: Icon(item.published ? Icons.campaign_rounded : Icons.drafts_rounded)),
                         title: Text(item.title, style: const TextStyle(fontWeight: FontWeight.w900)),
-                        subtitle: Text('${item.status} • target: ${item.target}\n${item.message}'),
+                        subtitle: Text('${item.status} • target: ${item.targetLabel}\n${item.message}'),
                         isThreeLine: true,
                         trailing: Switch(value: item.published, onChanged: (value) => setPublished(item, value)),
                         onTap: () => openForm(item),
@@ -175,15 +216,18 @@ class _AnnouncementSheet extends StatefulWidget {
 class _AnnouncementSheetState extends State<_AnnouncementSheet> {
   late final TextEditingController title = TextEditingController(text: widget.item?.title ?? '');
   late final TextEditingController message = TextEditingController(text: widget.item?.message ?? '');
-  late String target = widget.item?.target ?? 'all';
+  late final TextEditingController targetIds = TextEditingController(text: widget.item?.targetIds.join(', ') ?? '');
+  late String targetType = widget.item?.targetType ?? 'all';
+  late String type = widget.item?.type ?? 'info';
   late bool published = widget.item?.published ?? false;
-  late bool push = true;
+  late bool push = widget.item?.sendPush ?? true;
   bool saving = false;
 
   @override
   void dispose() {
     title.dispose();
     message.dispose();
+    targetIds.dispose();
     super.dispose();
   }
 
@@ -194,49 +238,70 @@ class _AnnouncementSheetState extends State<_AnnouncementSheet> {
     }
     setState(() => saving = true);
     try {
-      final db = FirebaseDatabase.instance;
-      final id = widget.item?.id ?? db.ref('announcements/${widget.session.companyId}').push().key!;
+      final col = FirebaseFirestore.instance.collection(FirestorePaths.announcements(widget.session.companyId));
+      final id = widget.item?.id ?? col.doc().id;
       final now = DateTime.now().millisecondsSinceEpoch;
-      await db.ref('announcements/${widget.session.companyId}/$id').update({
+      final ids = _targetIdsFromText(targetIds.text);
+      await col.doc(id).set({
         'id': id,
         'announcement_id': id,
         'company_id': widget.session.companyId,
         'title': title.text.trim(),
         'message': message.text.trim(),
         'body': message.text.trim(),
-        'target': target,
-        'target_audience': target,
-        'published': published,
+        'type': type,
+        'target_type': targetType,
+        'target_ids': ids,
+        'send_push': push,
         'active': published,
         'status': published ? 'published' : 'draft',
         'published_at': published ? now : widget.item?.data['published_at'],
+        'scheduled_at': null,
         'updated_at': now,
         'updated_by': widget.session.uid,
         if (widget.item == null) 'created_at': now,
         if (widget.item == null) 'created_by': widget.session.uid,
+        if (widget.item == null) 'created_by_name': widget.session.displayName,
         if (widget.item == null) 'created_by_email': widget.session.email,
-      });
+      }, SetOptions(merge: true));
 
       if (published && push) {
-        final ref = db.ref('companies/${widget.session.companyId}/notification_queue').push();
-        await ref.set({
-          'id': ref.key,
-          'type': 'announcement',
+        final targetUids = await _resolveAnnouncementTargetUids(widget.session.companyId, targetType, ids);
+        await NotificationBridge().createNotificationForUsers(
+          companyId: widget.session.companyId,
+          uids: targetUids,
+          title: title.text.trim(),
+          message: message.text.trim(),
+          type: type,
+          refType: 'announcement',
+          refId: id,
+          data: {'announcement_id': id, 'target_type': targetType},
+        );
+        await NotificationBridge().writeNotificationLog(widget.session.companyId, {
+          'action': 'announcement_push_queue_created',
           'announcement_id': id,
-          'title': title.text.trim(),
-          'body': message.text.trim(),
-          'target': target,
-          'status': 'pending',
-          'created_at': now,
+          'target_count': targetUids.length,
+          'queue_count': targetUids.length,
           'created_by': widget.session.uid,
-          'created_by_email': widget.session.email,
+          'created_by_name': widget.session.displayName,
         });
       }
 
-      await db.ref('audit_logs/${widget.session.companyId}').push().set({
+      await NotificationBridge().writeNotificationLog(widget.session.companyId, {
+        'action': widget.item == null ? 'announcement_create' : 'announcement_update',
+        'announcement_id': id,
+        'title': title.text.trim(),
+        'status': published ? 'published' : 'draft',
+        'target_type': targetType,
+        'target_ids': ids,
+        'created_by': widget.session.uid,
+        'created_by_name': widget.session.displayName,
+      });
+
+      await FirebaseDatabase.instance.ref(FirebasePaths.auditLogs(widget.session.companyId)).push().set({
         'action': widget.item == null ? 'create_announcement' : 'update_announcement',
         'target_id': id,
-        'target_path': 'announcements/${widget.session.companyId}/$id',
+        'target_path': FirestorePaths.announcement(widget.session.companyId, id),
         'actor_uid': widget.session.uid,
         'actor_email': widget.session.email,
         'created_at': now,
@@ -263,16 +328,41 @@ class _AnnouncementSheetState extends State<_AnnouncementSheet> {
           TextField(controller: message, maxLines: 5, decoration: const InputDecoration(labelText: 'Isi pengumuman')),
           const SizedBox(height: 10),
           DropdownButtonFormField<String>(
-            value: target,
-            decoration: const InputDecoration(labelText: 'Target audience'),
+            value: type,
+            decoration: const InputDecoration(labelText: 'Tipe'),
+            items: const [
+              DropdownMenuItem(value: 'info', child: Text('Info')),
+              DropdownMenuItem(value: 'success', child: Text('Success')),
+              DropdownMenuItem(value: 'warning', child: Text('Warning')),
+              DropdownMenuItem(value: 'danger', child: Text('Danger')),
+            ],
+            onChanged: (value) => setState(() => type = value ?? 'info'),
+          ),
+          const SizedBox(height: 10),
+          DropdownButtonFormField<String>(
+            value: targetType,
+            decoration: const InputDecoration(labelText: 'Target'),
             items: const [
               DropdownMenuItem(value: 'all', child: Text('Semua karyawan')),
-              DropdownMenuItem(value: 'employee', child: Text('Employee')),
-              DropdownMenuItem(value: 'admin', child: Text('Admin')),
-              DropdownMenuItem(value: 'owner', child: Text('Owner')),
+              DropdownMenuItem(value: 'user', child: Text('User tertentu')),
+              DropdownMenuItem(value: 'office', child: Text('Kantor')),
+              DropdownMenuItem(value: 'area', child: Text('Area')),
+              DropdownMenuItem(value: 'department', child: Text('Departemen')),
+              DropdownMenuItem(value: 'sub_department', child: Text('Sub Departemen')),
+              DropdownMenuItem(value: 'group', child: Text('Grup')),
             ],
-            onChanged: (value) => setState(() => target = value ?? 'all'),
+            onChanged: (value) => setState(() => targetType = value ?? 'all'),
           ),
+          if (targetType != 'all') ...[
+            const SizedBox(height: 10),
+            TextField(
+              controller: targetIds,
+              decoration: const InputDecoration(
+                labelText: 'Target IDs',
+                hintText: 'Pisahkan dengan koma, contoh: id1, id2',
+              ),
+            ),
+          ],
           SwitchListTile(value: published, onChanged: (value) => setState(() => published = value), title: const Text('Publish sekarang')),
           SwitchListTile(value: push, onChanged: (value) => setState(() => push = value), title: const Text('Kirim push notification')),
           FilledButton.icon(onPressed: saving ? null : save, icon: const Icon(Icons.save_rounded), label: Text(saving ? 'Menyimpan...' : 'Simpan')),
@@ -285,12 +375,23 @@ class _AnnouncementSheetState extends State<_AnnouncementSheet> {
 class AnnouncementItem {
   final String id;
   final Map<String, dynamic> data;
+  final String source;
 
-  const AnnouncementItem({required this.id, required this.data});
+  const AnnouncementItem({required this.id, required this.data, required this.source});
 
   String get title => _read(data, const ['title', 'judul']).ifEmpty(id);
   String get message => _read(data, const ['message', 'body', 'isi', 'description']);
-  String get target => _read(data, const ['target', 'target_audience']).ifEmpty('all');
+  String get type => _read(data, const ['type']).ifEmpty('info');
+  String get targetType => _read(data, const ['target_type', 'target', 'target_audience']).ifEmpty('all');
+  List<String> get targetIds {
+    final raw = data['target_ids'];
+    if (raw is List) return raw.map((item) => item.toString()).where((item) => item.trim().isNotEmpty).toList();
+    if (raw is Map) return raw.values.map((item) => item.toString()).where((item) => item.trim().isNotEmpty).toList();
+    return _targetIdsFromText(raw?.toString() ?? '');
+  }
+
+  String get targetLabel => targetType == 'all' ? 'Semua karyawan' : '$targetType: ${targetIds.join(', ')}';
+  bool get sendPush => data['send_push'] != false;
   bool get published => data['published'] == true || status == 'published';
   bool get active => data['active'] != false && status != 'inactive';
   String get status => _read(data, const ['status']).ifEmpty(data['published'] == true ? 'published' : 'draft').toLowerCase();
@@ -308,6 +409,54 @@ String _read(Map<String, dynamic> data, List<String> keys) {
     if (value != null && value.toString().trim().isNotEmpty) return value.toString();
   }
   return '';
+}
+
+List<String> _targetIdsFromText(String text) {
+  return text
+      .split(',')
+      .map((item) => item.trim())
+      .where((item) => item.isNotEmpty)
+      .toSet()
+      .toList();
+}
+
+Future<List<String>> _resolveAnnouncementTargetUids(String companyId, String targetType, List<String> targetIds) async {
+  final snap = await FirebaseDatabase.instance.ref(FirebasePaths.companyUsers(companyId)).get();
+  final data = _asMap(snap.value) ?? const <String, dynamic>{};
+  final safeIds = targetIds.map((item) => item.toString()).toSet();
+  final uids = <String>[];
+  for (final entry in data.entries) {
+    final employee = _asMap(entry.value) ?? const <String, dynamic>{};
+    if (!_isActiveEmployee(employee)) continue;
+    final uid = _read(employee, const ['uid']).ifEmpty(entry.key);
+    if (targetType == 'all') {
+      uids.add(uid);
+    } else if (targetType == 'user' && safeIds.contains(uid)) {
+      uids.add(uid);
+    } else if (targetType == 'office' && safeIds.contains(_read(employee, const ['office_id', 'officeId']))) {
+      uids.add(uid);
+    } else if (targetType == 'area' && safeIds.contains(_read(employee, const ['area_id', 'areaId']))) {
+      uids.add(uid);
+    } else if (targetType == 'department' && safeIds.contains(_read(employee, const ['department_id', 'departmentId']))) {
+      uids.add(uid);
+    } else if (targetType == 'sub_department' && safeIds.contains(_read(employee, const ['sub_department_id', 'subDepartmentId']))) {
+      uids.add(uid);
+    } else if (targetType == 'group' && safeIds.contains(_read(employee, const ['group_id', 'groupId']))) {
+      uids.add(uid);
+    }
+  }
+  return uids.toSet().toList();
+}
+
+bool _isActiveEmployee(Map<String, dynamic> data) {
+  final status = _read(data, const ['status_akun', 'status', 'account_status']).toLowerCase();
+  return data['active'] == true ||
+      data['is_active'] == true ||
+      status == 'active' ||
+      status == 'aktif' ||
+      status == 'enabled' ||
+      status == 'approved' ||
+      status == '1';
 }
 
 extension _StringFallback on String {

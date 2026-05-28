@@ -1,8 +1,11 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/firebase_paths.dart';
 import '../../core/models.dart';
 import '../../services/admin_service.dart';
+import '../../services/notification_bridge.dart';
 import '../shared/message_card.dart';
 
 class NotificationLogsPage extends StatefulWidget {
@@ -31,19 +34,24 @@ class _NotificationLogsPageState extends State<NotificationLogsPage> {
 
   Future<_NotificationLogBundle> loadBundle() async {
     final companyId = widget.session.companyId;
-    final db = FirebaseDatabase.instance;
     final results = await Future.wait([
-      db.ref('companies/$companyId/notification_queue').get(),
-      db.ref('notification_logs/$companyId').get(),
+      FirebaseFirestore.instance.collection(FirestorePaths.notificationQueue(companyId)).get(),
+      FirebaseFirestore.instance.collection(FirestorePaths.notificationLogs(companyId)).get(),
+      FirebaseDatabase.instance.ref('notification_logs/$companyId').get(),
     ]);
 
-    final queueData = _asMap(results[0].value) ?? const <String, dynamic>{};
-    final logsData = _asMap(results[1].value) ?? const <String, dynamic>{};
+    final queueSnap = results[0] as QuerySnapshot<Map<String, dynamic>>;
+    final logsSnap = results[1] as QuerySnapshot<Map<String, dynamic>>;
+    final legacyLogsData = _asMap((results[2] as DataSnapshot).value) ?? const <String, dynamic>{};
 
-    final queue = queueData.entries.map((entry) => NotificationLogItem(id: entry.key, source: 'queue', data: _asMap(entry.value) ?? const <String, dynamic>{})).toList()
+    final queue = queueSnap.docs.map((doc) => NotificationLogItem(id: doc.id, source: 'queue', data: doc.data())).toList()
       ..sort((a, b) => b.sortKey.compareTo(a.sortKey));
-    final logs = logsData.entries.map((entry) => NotificationLogItem(id: entry.key, source: 'logs', data: _asMap(entry.value) ?? const <String, dynamic>{})).toList()
+    final logs = logsSnap.docs.map((doc) => NotificationLogItem(id: doc.id, source: 'logs', data: doc.data())).toList()
       ..sort((a, b) => b.sortKey.compareTo(a.sortKey));
+    if (logs.isEmpty) {
+      logs.addAll(legacyLogsData.entries.map((entry) => NotificationLogItem(id: entry.key, source: 'logs', data: _asMap(entry.value) ?? const <String, dynamic>{})));
+      logs.sort((a, b) => b.sortKey.compareTo(a.sortKey));
+    }
 
     return _NotificationLogBundle(queue: queue, logs: logs);
   }
@@ -63,30 +71,28 @@ class _NotificationLogsPageState extends State<NotificationLogsPage> {
     final companyId = widget.session.companyId;
     final now = DateTime.now().millisecondsSinceEpoch;
     if (item.source == 'queue') {
-      await FirebaseDatabase.instance.ref('companies/$companyId/notification_queue/${item.id}').update({
+      await FirebaseFirestore.instance.doc(FirestorePaths.notificationQueueItem(companyId, item.id)).set({
         'status': 'pending',
         'retry_count': item.retryCount + 1,
         'updated_at': now,
         'updated_by': widget.session.uid,
-      });
+      }, SetOptions(merge: true));
     } else {
-      final ref = FirebaseDatabase.instance.ref('companies/$companyId/notification_queue').push();
-      await ref.set({
-        'id': ref.key,
-        'title': item.title,
-        'body': item.body,
-        'type': item.type,
-        'target': item.target,
-        'status': 'pending',
-        'source_log_id': item.id,
-        'retry_count': item.retryCount + 1,
-        'created_at': now,
-        'created_by': widget.session.uid,
-        'created_by_email': widget.session.email,
-      });
+      final uid = item.target;
+      if (uid == 'all' || uid.isEmpty) throw Exception('Log ini tidak punya uid target untuk queue ulang.');
+      await NotificationBridge().createNotificationQueue(
+        companyId: companyId,
+        uid: uid,
+        title: item.title,
+        message: item.body,
+        type: item.type,
+        refType: _read(item.data, const ['ref_type']).ifEmpty('notification_log'),
+        refId: _read(item.data, const ['ref_id']).ifEmpty(item.id),
+        data: {'source_log_id': item.id},
+      );
     }
 
-    await FirebaseDatabase.instance.ref('audit_logs/$companyId').push().set({
+    await FirebaseDatabase.instance.ref(FirebasePaths.auditLogs(companyId)).push().set({
       'action': 'retry_notification',
       'target_id': item.id,
       'actor_uid': widget.session.uid,
