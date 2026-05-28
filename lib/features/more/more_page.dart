@@ -16,6 +16,7 @@ import '../owner/owner_tools_page.dart';
 import '../reports/advanced_reports_page.dart';
 import '../reports/reports_page.dart';
 import '../reports/reports_summary_page.dart';
+import '../schedules/schedules_management_page.dart';
 import '../settings/settings_management_page.dart';
 
 class MorePage extends StatelessWidget {
@@ -38,6 +39,7 @@ class MorePage extends StatelessWidget {
         _MoreTile('Pengumuman', 'Buat dan publish pengumuman.', Icons.campaign_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AnnouncementsPage(session: session, service: service)))),
         _MoreTile('Notifikasi', 'Pantau queue push notification.', Icons.notifications_active_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => NotificationLogsPage(session: session, service: service)))),
         _MoreTile('Pengaturan Notifikasi', 'Atur notifikasi absensi, approval, jadwal, dan summary.', Icons.notification_important_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => NotificationSettingsPageFull(session: session)))),
+        _MoreTile('Jadwal', 'Jam kerja, shift, assignment, libur, dan lembur.', Icons.calendar_month_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => SchedulesManagementPage(session: session)))),
         _MoreTile('Radius Kantor', 'Atur titik kantor dan radius absen.', Icons.map_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => OfficeRadiusPage(session: session)))),
         _MoreTile('Laporan Ringkas', 'Lihat ringkasan laporan lama.', Icons.insert_chart_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ReportsPage(session: session, service: service)))),
         _MoreTile('Reports Summary', 'Ringkasan absensi per karyawan dan export Excel.', Icons.summarize_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ReportsSummaryPage(session: session)))),
