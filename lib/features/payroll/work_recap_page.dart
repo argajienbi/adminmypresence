@@ -47,12 +47,14 @@ class _WorkRecapPageState extends State<WorkRecapPage> {
       db.ref('attendance/$companyId').get(),
       db.ref('overtime_requests/$companyId').get(),
       db.ref('leave_requests/$companyId').get(),
+      db.ref('payroll_settings/$companyId').get(),
     ]);
 
     final users = _asMap(results[0].value) ?? const <String, dynamic>{};
     final attendance = _asMap(results[1].value) ?? const <String, dynamic>{};
     final overtime = _asMap(results[2].value) ?? const <String, dynamic>{};
     final leave = _asMap(results[3].value) ?? const <String, dynamic>{};
+    final settings = _asMap(results[4].value) ?? const <String, dynamic>{};
     final rows = <String, WorkRecapRecord>{};
 
     for (final entry in users.entries) {
@@ -116,6 +118,17 @@ class _WorkRecapPageState extends State<WorkRecapPage> {
       if (_status(data) == 'approved') row.approvedLeave++;
     }
 
+    final lateAmount = _toInt(settings['late_deduction_amount']);
+    final outsideAmount = _toInt(settings['outside_radius_deduction_amount']);
+    final rejectedAmount = _toInt(settings['rejected_deduction_amount']);
+    final overtimeRate = _toInt(settings['overtime_rate_per_hour']);
+    for (final row in rows.values) {
+      row.lateDeductionAmount = lateAmount;
+      row.outsideRadiusDeductionAmount = outsideAmount;
+      row.rejectedDeductionAmount = rejectedAmount;
+      row.overtimeRatePerHour = overtimeRate;
+    }
+
     final list = rows.values.toList();
     list.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     return list;
@@ -164,7 +177,7 @@ class _WorkRecapPageState extends State<WorkRecapPage> {
       excel.setDefaultSheet('Work Recap');
       if (excel.sheets.containsKey('Sheet1')) excel.delete('Sheet1');
 
-      final headers = ['Nama', 'Email', 'NIP', 'Kantor', 'Departemen', 'Hari Kerja', 'Masuk', 'Pulang', 'Terlambat', 'Luar Radius', 'Ditolak', 'Skor Potongan', 'Request Lembur', 'Lembur Approved', 'Jam Lembur', 'Request Cuti', 'Cuti Approved', 'UID'];
+      final headers = ['Nama', 'Email', 'NIP', 'Kantor', 'Departemen', 'Hari Kerja', 'Masuk', 'Pulang', 'Terlambat', 'Luar Radius', 'Ditolak', 'Skor Potongan', 'Potongan IDR', 'Request Lembur', 'Lembur Approved', 'Jam Lembur', 'Estimasi Lembur IDR', 'Net Adjustment IDR', 'Request Cuti', 'Cuti Approved', 'UID'];
       for (var col = 0; col < headers.length; col++) {
         final cell = sheet.cell(CellIndex.indexByColumnRow(columnIndex: col, rowIndex: 0));
         cell.value = TextCellValue(headers[col]);
@@ -186,9 +199,12 @@ class _WorkRecapPageState extends State<WorkRecapPage> {
           row.outsideRadiusCount.toString(),
           row.rejectedCount.toString(),
           row.deductionScore.toString(),
+          row.deductionAmount.toString(),
           row.overtimeRequests.toString(),
           row.approvedOvertime.toString(),
           row.overtimeHours.toStringAsFixed(1),
+          row.overtimeEstimate.toString(),
+          row.netAdjustment.toString(),
           row.leaveRequests.toString(),
           row.approvedLeave.toString(),
           row.uid,
@@ -227,12 +243,13 @@ class _WorkRecapPageState extends State<WorkRecapPage> {
           final totalLate = rows.fold<int>(0, (sum, row) => sum + row.lateCount);
           final totalOvertime = rows.fold<double>(0, (sum, row) => sum + row.overtimeHours);
           final totalOutside = rows.fold<int>(0, (sum, row) => sum + row.outsideRadiusCount);
-          final totalDeduction = rows.fold<int>(0, (sum, row) => sum + row.deductionScore);
+          final totalDeduction = rows.fold<int>(0, (sum, row) => sum + row.deductionAmount);
+          final totalOvertimeEstimate = rows.fold<int>(0, (sum, row) => sum + row.overtimeEstimate);
 
           return ListView(
             padding: const EdgeInsets.all(18),
             children: [
-              MessageCard(title: 'Work Recap', message: 'Karyawan: ${rows.length} • Telat: $totalLate • Luar radius: $totalOutside • Jam lembur: ${totalOvertime.toStringAsFixed(1)} • Skor potongan: $totalDeduction', icon: Icons.summarize_rounded),
+              MessageCard(title: 'Work Recap', message: 'Karyawan: ${rows.length} • Telat: $totalLate • Luar radius: $totalOutside • Jam lembur: ${totalOvertime.toStringAsFixed(1)}\nPotongan: ${_money(totalDeduction)} • Estimasi lembur: ${_money(totalOvertimeEstimate)}', icon: Icons.summarize_rounded),
               const SizedBox(height: 12),
               TextField(controller: search, onChanged: (_) => setState(() {}), decoration: const InputDecoration(labelText: 'Cari nama, NIP, email, kantor, departemen', prefixIcon: Icon(Icons.search_rounded))),
               const SizedBox(height: 12),
@@ -255,7 +272,7 @@ class _WorkRecapPageState extends State<WorkRecapPage> {
                       child: ListTile(
                         leading: CircleAvatar(child: Text(row.name.isEmpty ? '?' : row.name.characters.first.toUpperCase())),
                         title: Text(row.name, style: const TextStyle(fontWeight: FontWeight.w900)),
-                        subtitle: Text('${row.nip.ifEmpty(row.email)} • ${row.officeName.ifEmpty('-')}\nHari ${row.workDays} • Masuk ${row.checkIn} • Pulang ${row.checkOut} • Telat ${row.lateCount} • Luar ${row.outsideRadiusCount} • Ditolak ${row.rejectedCount} • Skor ${row.deductionScore} • Lembur ${row.overtimeHours.toStringAsFixed(1)} jam'),
+                        subtitle: Text('${row.nip.ifEmpty(row.email)} • ${row.officeName.ifEmpty('-')}\nTelat ${row.lateCount} • Luar ${row.outsideRadiusCount} • Ditolak ${row.rejectedCount} • Potongan ${_money(row.deductionAmount)} • Lembur ${_money(row.overtimeEstimate)}'),
                         isThreeLine: true,
                       ),
                     )),
@@ -285,10 +302,17 @@ class WorkRecapRecord {
   double overtimeHours = 0;
   int leaveRequests = 0;
   int approvedLeave = 0;
+  int lateDeductionAmount = 0;
+  int outsideRadiusDeductionAmount = 0;
+  int rejectedDeductionAmount = 0;
+  int overtimeRatePerHour = 0;
 
   WorkRecapRecord({required this.uid, required this.name, required this.email, required this.nip, required this.officeName, required this.departmentName});
 
   int get deductionScore => lateCount + (outsideRadiusCount * 2) + (rejectedCount * 3);
+  int get deductionAmount => (lateCount * lateDeductionAmount) + (outsideRadiusCount * outsideRadiusDeductionAmount) + (rejectedCount * rejectedDeductionAmount);
+  int get overtimeEstimate => (overtimeHours * overtimeRatePerHour).round();
+  int get netAdjustment => overtimeEstimate - deductionAmount;
 }
 
 Map<String, dynamic>? _asMap(Object? value) => value is Map ? value.map((key, item) => MapEntry(key.toString(), item)) : null;
@@ -306,6 +330,12 @@ double _toDouble(Object? value) {
   return double.tryParse(value?.toString() ?? '') ?? 0;
 }
 
+int _toInt(Object? value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse(value?.toString().replaceAll('.', '').replaceAll(',', '') ?? '') ?? 0;
+}
+
 String _status(Map<String, dynamic> data) {
   final text = _read(data, const ['status', 'approval_status']).toLowerCase();
   if (text.contains('approve') || text.contains('valid')) return 'approved';
@@ -314,6 +344,17 @@ String _status(Map<String, dynamic> data) {
 }
 
 String _date(DateTime date) => '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+
+String _money(num value) {
+  final text = value.round().toString();
+  final buffer = StringBuffer();
+  for (var i = 0; i < text.length; i++) {
+    final reverseIndex = text.length - i;
+    buffer.write(text[i]);
+    if (reverseIndex > 1 && reverseIndex % 3 == 1) buffer.write('.');
+  }
+  return 'Rp $buffer';
+}
 
 extension _StringFallback on String {
   String ifEmpty(String fallback) => trim().isEmpty ? fallback : this;
