@@ -6,6 +6,7 @@ import '../admin_web_port/admin_web_pages.dart';
 import '../announcements/announcements_page.dart';
 import '../approvals/approvals_page.dart';
 import '../attendance/attendance_corrections_page.dart';
+import '../attendance/attendance_live_page.dart';
 import '../audit/audit_logs_page.dart';
 import '../health/database_health_full_page.dart';
 import '../notifications/notification_logs_page.dart';
@@ -35,6 +36,7 @@ class MorePage extends StatelessWidget {
       children: [
         Text('Lainnya', style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900)),
         const SizedBox(height: 12),
+        _MoreTile('Live Absensi', 'Pantau absensi harian, status, lokasi, dan radius.', Icons.monitor_heart_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AttendanceLivePage(session: session)))),
         _MoreTile('Approval', 'Approve cuti, QR, dan pengajuan.', Icons.fact_check_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ApprovalsPage(session: session, service: service)))),
         _MoreTile('Pengumuman', 'Buat dan publish pengumuman.', Icons.campaign_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AnnouncementsPage(session: session, service: service)))),
         _MoreTile('Notifikasi', 'Pantau queue push notification.', Icons.notifications_active_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => NotificationLogsPage(session: session, service: service)))),
