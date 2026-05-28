@@ -6,6 +6,7 @@ import '../admin_web_port/admin_web_pages.dart';
 import '../announcements/announcements_page.dart';
 import '../approvals/approvals_page.dart';
 import '../notifications/notification_logs_page.dart';
+import '../offices/office_radius_page.dart';
 import '../reports/advanced_reports_page.dart';
 import '../reports/reports_page.dart';
 
@@ -29,6 +30,7 @@ class MorePage extends StatelessWidget {
         _MoreTile('Pengumuman', 'Buat dan publish pengumuman.', Icons.campaign_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AnnouncementsPage(session: session, service: service)))),
         _MoreTile('Notifikasi', 'Pantau queue push notification.', Icons.notifications_active_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => NotificationLogsPage(session: session, service: service)))),
         _MoreTile('Pengaturan Notifikasi', 'Port dari Notification Settings admin web.', Icons.notification_important_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => NotificationSettingsPage(session: session)))),
+        _MoreTile('Radius Kantor', 'Atur titik kantor dan radius absen.', Icons.map_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => OfficeRadiusPage(session: session)))),
         _MoreTile('Laporan Ringkas', 'Lihat ringkasan laporan.', Icons.insert_chart_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ReportsPage(session: session, service: service)))),
         _MoreTile('Advanced Reports', 'Port laporan absensi admin web dengan filter.', Icons.table_chart_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AdvancedReportsPage(session: session)))),
         _MoreTile('Koreksi Absensi', 'Port dari Attendance Corrections admin web.', Icons.edit_calendar_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AttendanceCorrectionsPage(session: session)))),
