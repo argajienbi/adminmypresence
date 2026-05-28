@@ -1,5 +1,6 @@
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/models.dart';
 import '../shared/message_card.dart';
@@ -24,6 +25,12 @@ class _AdvancedReportsPageState extends State<AdvancedReportsPage> {
     future = loadRows();
   }
 
+  @override
+  void dispose() {
+    search.dispose();
+    super.dispose();
+  }
+
   void refresh() {
     setState(() => future = loadRows());
   }
@@ -34,10 +41,12 @@ class _AdvancedReportsPageState extends State<AdvancedReportsPage> {
     final results = await Future.wait([
       db.ref('attendance/$companyId').get(),
       db.ref('company_users/$companyId').get(),
+      db.ref('offices/$companyId').get(),
     ]);
 
     final attendance = _asMap(results[0].value) ?? const <String, dynamic>{};
     final users = _asMap(results[1].value) ?? const <String, dynamic>{};
+    final offices = _asMap(results[2].value) ?? const <String, dynamic>{};
     final rows = <_ReportRow>[];
 
     for (final userEntry in attendance.entries) {
@@ -45,6 +54,7 @@ class _AdvancedReportsPageState extends State<AdvancedReportsPage> {
       final user = _asMap(users[uid]) ?? const <String, dynamic>{};
       final userName = _read(user, const ['nama_lengkap', 'display_name', 'name']).ifEmpty(uid);
       final nip = _read(user, const ['nip']);
+      final email = _read(user, const ['email']);
       final days = _asMap(userEntry.value);
       if (days == null) continue;
 
@@ -56,12 +66,28 @@ class _AdvancedReportsPageState extends State<AdvancedReportsPage> {
         for (final actionEntry in actions.entries) {
           final data = _asMap(actionEntry.value) ?? const <String, dynamic>{};
           final action = actionEntry.key;
-          final time = _read(data, const ['waktu', 'time', 'created_time']);
+          final officeId = _read(data, const ['office_id', 'officeId', 'kantor_id']);
+          final officeData = _asMap(offices[officeId]) ?? const <String, dynamic>{};
+          final officeName = _read(officeData, const ['name', 'office_name', 'nama']).ifEmpty(_read(data, const ['office_name', 'kantor']));
+          final time = _read(data, const ['waktu', 'time', 'created_time', 'jam']);
           final status = _statusLabel(_read(data, const ['attendance_status', 'status_absen', 'validation_status', 'status']));
-          final distance = double.tryParse(_read(data, const ['distance_meter'])) ?? 0;
-          final radius = double.tryParse(_read(data, const ['radius_meter'])) ?? 0;
+          final distance = _toDouble(data['distance_meter'] ?? data['distance'] ?? data['jarak_meter']);
+          final radius = _toDouble(data['radius_meter'] ?? data['radius'] ?? data['geofence_radius'] ?? officeData['radius_meter'] ?? officeData['radius']);
           final geofence = radius > 0 ? (distance <= radius ? 'Di dalam radius' : 'Di luar radius') : 'Tidak diketahui';
-          rows.add(_ReportRow(uid: uid, name: userName, nip: nip, date: date, time: time, action: _actionLabel(action), status: status, geofence: geofence));
+          rows.add(_ReportRow(
+            uid: uid,
+            name: userName,
+            email: email,
+            nip: nip,
+            date: date,
+            time: time,
+            action: _actionLabel(action),
+            status: status,
+            geofence: geofence,
+            officeName: officeName,
+            distance: distance,
+            radius: radius,
+          ));
         }
       }
     }
@@ -74,7 +100,7 @@ class _AdvancedReportsPageState extends State<AdvancedReportsPage> {
     final term = search.text.trim().toLowerCase();
     return rows.where((row) {
       if (term.isNotEmpty) {
-        final haystack = '${row.name} ${row.nip} ${row.date} ${row.action} ${row.status}'.toLowerCase();
+        final haystack = '${row.name} ${row.email} ${row.nip} ${row.date} ${row.action} ${row.status} ${row.officeName}'.toLowerCase();
         if (!haystack.contains(term)) return false;
       }
       final parsed = DateTime.tryParse(row.date);
@@ -94,6 +120,37 @@ class _AdvancedReportsPageState extends State<AdvancedReportsPage> {
     if (picked != null) setState(() => endDate = picked);
   }
 
+  Future<void> copyCsv(List<_ReportRow> rows) async {
+    final csv = _buildCsv(rows);
+    await Clipboard.setData(ClipboardData(text: csv));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('CSV ${rows.length} baris disalin ke clipboard.')),
+    );
+  }
+
+  String _buildCsv(List<_ReportRow> rows) {
+    final buffer = StringBuffer();
+    buffer.writeln(['Tanggal', 'Jam', 'Nama', 'Email', 'NIP', 'Aksi', 'Status', 'Geofence', 'Kantor', 'Jarak Meter', 'Radius Meter', 'UID'].map(_csvCell).join(','));
+    for (final row in rows) {
+      buffer.writeln([
+        row.date,
+        row.time,
+        row.name,
+        row.email,
+        row.nip,
+        row.action,
+        row.status,
+        row.geofence,
+        row.officeName,
+        row.distance.toStringAsFixed(0),
+        row.radius.toStringAsFixed(0),
+        row.uid,
+      ].map(_csvCell).join(','));
+    }
+    return buffer.toString();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -105,15 +162,21 @@ class _AdvancedReportsPageState extends State<AdvancedReportsPage> {
           return ListView(
             padding: const EdgeInsets.all(18),
             children: [
-              const MessageCard(title: 'Reports', message: 'Port laporan absensi dari admin web dengan filter pencarian dan tanggal.', icon: Icons.table_chart_rounded),
+              MessageCard(title: 'Reports', message: 'Laporan absensi dengan filter tanggal, kantor, geofence, dan export CSV. Total: ${rows.length}', icon: Icons.table_chart_rounded),
               const SizedBox(height: 12),
-              TextField(controller: search, onChanged: (_) => setState(() {}), decoration: const InputDecoration(labelText: 'Cari nama, NIP, tanggal, status', prefixIcon: Icon(Icons.search_rounded))),
+              TextField(controller: search, onChanged: (_) => setState(() {}), decoration: const InputDecoration(labelText: 'Cari nama, NIP, email, kantor, status', prefixIcon: Icon(Icons.search_rounded))),
               const SizedBox(height: 12),
               Row(children: [
                 Expanded(child: OutlinedButton.icon(onPressed: pickStart, icon: const Icon(Icons.date_range_rounded), label: Text(startDate == null ? 'Mulai' : _date(startDate!)))),
                 const SizedBox(width: 10),
                 Expanded(child: OutlinedButton.icon(onPressed: pickEnd, icon: const Icon(Icons.event_rounded), label: Text(endDate == null ? 'Selesai' : _date(endDate!)))),
               ]),
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                onPressed: rows.isEmpty ? null : () => copyCsv(rows),
+                icon: const Icon(Icons.copy_rounded),
+                label: const Text('Copy CSV'),
+              ),
               const SizedBox(height: 12),
               if (snapshot.connectionState == ConnectionState.waiting)
                 const Padding(padding: EdgeInsets.all(32), child: Center(child: CircularProgressIndicator()))
@@ -122,7 +185,7 @@ class _AdvancedReportsPageState extends State<AdvancedReportsPage> {
               else if (rows.isEmpty)
                 const MessageCard(title: 'Tidak ada data', message: 'Tidak ada data sesuai filter.', icon: Icons.inbox_outlined)
               else
-                ...rows.map((row) => Card(child: ListTile(title: Text(row.name, style: const TextStyle(fontWeight: FontWeight.w900)), subtitle: Text('${row.date} ${row.time} | ${row.action}\n${row.nip} | ${row.status} | ${row.geofence}'), isThreeLine: true))),
+                ...rows.map((row) => Card(child: ListTile(title: Text(row.name, style: const TextStyle(fontWeight: FontWeight.w900)), subtitle: Text('${row.date} ${row.time} | ${row.action}\n${row.nip.ifEmpty(row.email)} | ${row.status} | ${row.geofence}\n${row.officeName.ifEmpty('-')} • ${row.distance.toStringAsFixed(0)} / ${row.radius.toStringAsFixed(0)} m'), isThreeLine: true))),
             ],
           );
         },
@@ -132,18 +195,27 @@ class _AdvancedReportsPageState extends State<AdvancedReportsPage> {
 }
 
 class _ReportRow {
-  const _ReportRow({required this.uid, required this.name, required this.nip, required this.date, required this.time, required this.action, required this.status, required this.geofence});
+  const _ReportRow({required this.uid, required this.name, required this.email, required this.nip, required this.date, required this.time, required this.action, required this.status, required this.geofence, required this.officeName, required this.distance, required this.radius});
   final String uid;
   final String name;
+  final String email;
   final String nip;
   final String date;
   final String time;
   final String action;
   final String status;
   final String geofence;
+  final String officeName;
+  final double distance;
+  final double radius;
 }
 
 Map<String, dynamic>? _asMap(Object? value) => value is Map ? value.map((key, item) => MapEntry(key.toString(), item)) : null;
+
+double _toDouble(Object? value) {
+  if (value is num) return value.toDouble();
+  return double.tryParse(value?.toString() ?? '') ?? 0;
+}
 
 String _read(Map<String, dynamic> data, List<String> keys) {
   for (final key in keys) {
@@ -176,6 +248,11 @@ String _actionLabel(String value) {
 }
 
 String _date(DateTime date) => '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+
+String _csvCell(String value) {
+  final escaped = value.replaceAll('"', '""');
+  return '"$escaped"';
+}
 
 extension _StringFallback on String {
   String ifEmpty(String fallback) => trim().isEmpty ? fallback : this;
