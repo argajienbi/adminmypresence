@@ -1,5 +1,10 @@
+import 'dart:io';
+
+import 'package:excel/excel.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../core/models.dart';
 import '../shared/message_card.dart';
@@ -18,6 +23,7 @@ class _WorkRecapPageState extends State<WorkRecapPage> {
   final search = TextEditingController();
   DateTime? startDate;
   DateTime? endDate;
+  bool exporting = false;
 
   @override
   void initState() {
@@ -148,6 +154,65 @@ class _WorkRecapPageState extends State<WorkRecapPage> {
     }
   }
 
+  Future<void> exportExcel(List<WorkRecapRecord> rows) async {
+    if (exporting || rows.isEmpty) return;
+    setState(() => exporting = true);
+    try {
+      final excel = Excel.createExcel();
+      final sheet = excel['Work Recap'];
+      excel.setDefaultSheet('Work Recap');
+      if (excel.sheets.containsKey('Sheet1')) excel.delete('Sheet1');
+
+      final headers = ['Nama', 'Email', 'NIP', 'Kantor', 'Departemen', 'Hari Kerja', 'Masuk', 'Pulang', 'Terlambat', 'Luar Radius', 'Request Lembur', 'Lembur Approved', 'Jam Lembur', 'Request Cuti', 'Cuti Approved', 'UID'];
+      for (var col = 0; col < headers.length; col++) {
+        final cell = sheet.cell(CellIndex.indexByColumnRow(columnIndex: col, rowIndex: 0));
+        cell.value = TextCellValue(headers[col]);
+        cell.cellStyle = CellStyle(bold: true);
+      }
+
+      for (var i = 0; i < rows.length; i++) {
+        final row = rows[i];
+        final values = [
+          row.name,
+          row.email,
+          row.nip,
+          row.officeName,
+          row.departmentName,
+          row.workDays.toString(),
+          row.checkIn.toString(),
+          row.checkOut.toString(),
+          row.lateCount.toString(),
+          row.outsideRadiusCount.toString(),
+          row.overtimeRequests.toString(),
+          row.approvedOvertime.toString(),
+          row.overtimeHours.toStringAsFixed(1),
+          row.leaveRequests.toString(),
+          row.approvedLeave.toString(),
+          row.uid,
+        ];
+        for (var col = 0; col < values.length; col++) {
+          sheet.cell(CellIndex.indexByColumnRow(columnIndex: col, rowIndex: i + 1)).value = TextCellValue(values[col]);
+        }
+      }
+
+      for (var col = 0; col < headers.length; col++) {
+        sheet.setColumnWidth(col, col == 0 ? 24 : 16);
+      }
+
+      final bytes = excel.encode();
+      if (bytes == null) throw Exception('Gagal membuat file Excel.');
+      final directory = await getTemporaryDirectory();
+      final file = File('${directory.path}/work_recap_${DateTime.now().millisecondsSinceEpoch}.xlsx');
+      await file.writeAsBytes(bytes, flush: true);
+      await Share.shareXFiles([XFile(file.path)], text: 'Work recap MyPresence');
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+    } finally {
+      if (mounted) setState(() => exporting = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -172,6 +237,8 @@ class _WorkRecapPageState extends State<WorkRecapPage> {
                 const SizedBox(width: 10),
                 Expanded(child: OutlinedButton.icon(onPressed: pickEnd, icon: const Icon(Icons.event_rounded), label: Text(endDate == null ? 'Selesai' : _date(endDate!)))),
               ]),
+              const SizedBox(height: 12),
+              FilledButton.icon(onPressed: rows.isEmpty || exporting ? null : () => exportExcel(rows), icon: const Icon(Icons.file_download_rounded), label: Text(exporting ? 'Membuat Excel...' : 'Export Excel Work Recap')),
               const SizedBox(height: 12),
               if (snapshot.connectionState == ConnectionState.waiting)
                 const Padding(padding: EdgeInsets.all(32), child: Center(child: CircularProgressIndicator()))
