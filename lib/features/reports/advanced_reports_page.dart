@@ -1,6 +1,10 @@
+import 'dart:io';
+
+import 'package:excel/excel.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../core/models.dart';
 import '../shared/message_card.dart';
@@ -18,6 +22,7 @@ class _AdvancedReportsPageState extends State<AdvancedReportsPage> {
   final search = TextEditingController();
   DateTime? startDate;
   DateTime? endDate;
+  bool exporting = false;
 
   @override
   void initState() {
@@ -120,35 +125,63 @@ class _AdvancedReportsPageState extends State<AdvancedReportsPage> {
     if (picked != null) setState(() => endDate = picked);
   }
 
-  Future<void> copyCsv(List<_ReportRow> rows) async {
-    final csv = _buildCsv(rows);
-    await Clipboard.setData(ClipboardData(text: csv));
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('CSV ${rows.length} baris disalin ke clipboard.')),
-    );
-  }
+  Future<void> exportExcel(List<_ReportRow> rows) async {
+    if (exporting || rows.isEmpty) return;
+    setState(() => exporting = true);
 
-  String _buildCsv(List<_ReportRow> rows) {
-    final buffer = StringBuffer();
-    buffer.writeln(['Tanggal', 'Jam', 'Nama', 'Email', 'NIP', 'Aksi', 'Status', 'Geofence', 'Kantor', 'Jarak Meter', 'Radius Meter', 'UID'].map(_csvCell).join(','));
-    for (final row in rows) {
-      buffer.writeln([
-        row.date,
-        row.time,
-        row.name,
-        row.email,
-        row.nip,
-        row.action,
-        row.status,
-        row.geofence,
-        row.officeName,
-        row.distance.toStringAsFixed(0),
-        row.radius.toStringAsFixed(0),
-        row.uid,
-      ].map(_csvCell).join(','));
+    try {
+      final excel = Excel.createExcel();
+      final sheet = excel['Laporan Absensi'];
+      excel.setDefaultSheet('Laporan Absensi');
+      if (excel.sheets.containsKey('Sheet1')) excel.delete('Sheet1');
+
+      final headers = ['Tanggal', 'Jam', 'Nama', 'Email', 'NIP', 'Aksi', 'Status', 'Geofence', 'Kantor', 'Jarak Meter', 'Radius Meter', 'UID'];
+      for (var col = 0; col < headers.length; col++) {
+        final cell = sheet.cell(CellIndex.indexByColumnRow(columnIndex: col, rowIndex: 0));
+        cell.value = TextCellValue(headers[col]);
+        cell.cellStyle = CellStyle(bold: true);
+      }
+
+      for (var i = 0; i < rows.length; i++) {
+        final row = rows[i];
+        final values = [
+          row.date,
+          row.time,
+          row.name,
+          row.email,
+          row.nip,
+          row.action,
+          row.status,
+          row.geofence,
+          row.officeName,
+          row.distance.toStringAsFixed(0),
+          row.radius.toStringAsFixed(0),
+          row.uid,
+        ];
+        for (var col = 0; col < values.length; col++) {
+          sheet.cell(CellIndex.indexByColumnRow(columnIndex: col, rowIndex: i + 1)).value = TextCellValue(values[col]);
+        }
+      }
+
+      for (var col = 0; col < headers.length; col++) {
+        sheet.setColumnWidth(col, col == 2 ? 24 : 18);
+      }
+
+      final bytes = excel.encode();
+      if (bytes == null) throw Exception('Gagal membuat file Excel.');
+
+      final directory = await getTemporaryDirectory();
+      final fileName = 'laporan_absensi_${DateTime.now().millisecondsSinceEpoch}.xlsx';
+      final file = File('${directory.path}/$fileName');
+      await file.writeAsBytes(bytes, flush: true);
+
+      await Share.shareXFiles([XFile(file.path)], text: 'Laporan absensi MyPresence');
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+    } finally {
+      if (mounted) setState(() => exporting = false);
     }
-    return buffer.toString();
   }
 
   @override
@@ -162,7 +195,7 @@ class _AdvancedReportsPageState extends State<AdvancedReportsPage> {
           return ListView(
             padding: const EdgeInsets.all(18),
             children: [
-              MessageCard(title: 'Reports', message: 'Laporan absensi dengan filter tanggal, kantor, geofence, dan export CSV. Total: ${rows.length}', icon: Icons.table_chart_rounded),
+              MessageCard(title: 'Reports', message: 'Laporan absensi dengan filter tanggal, kantor, geofence, dan export Excel. Total: ${rows.length}', icon: Icons.table_chart_rounded),
               const SizedBox(height: 12),
               TextField(controller: search, onChanged: (_) => setState(() {}), decoration: const InputDecoration(labelText: 'Cari nama, NIP, email, kantor, status', prefixIcon: Icon(Icons.search_rounded))),
               const SizedBox(height: 12),
@@ -173,9 +206,9 @@ class _AdvancedReportsPageState extends State<AdvancedReportsPage> {
               ]),
               const SizedBox(height: 12),
               FilledButton.icon(
-                onPressed: rows.isEmpty ? null : () => copyCsv(rows),
-                icon: const Icon(Icons.copy_rounded),
-                label: const Text('Copy CSV'),
+                onPressed: rows.isEmpty || exporting ? null : () => exportExcel(rows),
+                icon: const Icon(Icons.file_download_rounded),
+                label: Text(exporting ? 'Membuat Excel...' : 'Export Excel'),
               ),
               const SizedBox(height: 12),
               if (snapshot.connectionState == ConnectionState.waiting)
@@ -248,11 +281,6 @@ String _actionLabel(String value) {
 }
 
 String _date(DateTime date) => '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
-
-String _csvCell(String value) {
-  final escaped = value.replaceAll('"', '""');
-  return '"$escaped"';
-}
 
 extension _StringFallback on String {
   String ifEmpty(String fallback) => trim().isEmpty ? fallback : this;
