@@ -17,6 +17,7 @@ class _AttendanceCorrectionsListPageState extends State<AttendanceCorrectionsLis
   late Future<List<CorrectionItem>> future;
   String filter = 'pending';
   String query = '';
+  bool reviewing = false;
 
   @override
   void initState() {
@@ -48,6 +49,57 @@ class _AttendanceCorrectionsListPageState extends State<AttendanceCorrectionsLis
       final text = '${item.title} ${item.subtitle} ${item.rawText}'.toLowerCase();
       return text.contains(q);
     }).toList();
+  }
+
+  Future<void> reviewCorrection(CorrectionItem item, String status) async {
+    if (reviewing) return;
+    setState(() => reviewing = true);
+
+    try {
+      final approved = status == 'approved';
+      final now = DateTime.now().millisecondsSinceEpoch;
+      await FirebaseDatabase.instance.ref('attendance_corrections/${widget.session.companyId}/${item.id}').update({
+        'status': status,
+        'approval_status': status,
+        'approved': approved,
+        'reviewed_at': now,
+        'reviewed_by': widget.session.uid,
+        'reviewed_by_email': widget.session.email,
+        'reviewed_by_name': widget.session.displayName,
+      });
+
+      await FirebaseDatabase.instance.ref('audit_logs/${widget.session.companyId}').push().set({
+        'action': 'attendance_correction_$status',
+        'target_id': item.id,
+        'actor_uid': widget.session.uid,
+        'actor_email': widget.session.email,
+        'created_at': now,
+      });
+
+      refresh();
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+    } finally {
+      if (mounted) setState(() => reviewing = false);
+    }
+  }
+
+  Future<void> confirmReview(CorrectionItem item, String status) async {
+    final label = status == 'approved' ? 'Approve' : 'Reject';
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text('$label Koreksi'),
+        content: Text('${item.title}\n${item.subtitle}'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Batal')),
+          FilledButton(onPressed: () => Navigator.of(context).pop(true), child: Text(label)),
+        ],
+      ),
+    );
+
+    if (ok == true) await reviewCorrection(item, status);
   }
 
   @override
@@ -106,6 +158,23 @@ class _AttendanceCorrectionsListPageState extends State<AttendanceCorrectionsLis
                       title: Text(item.title, style: const TextStyle(fontWeight: FontWeight.w900)),
                       subtitle: Text(item.subtitle),
                       isThreeLine: true,
+                      trailing: item.normalizedStatus == 'pending'
+                          ? Wrap(
+                              spacing: 2,
+                              children: [
+                                IconButton(
+                                  onPressed: reviewing ? null : () => confirmReview(item, 'rejected'),
+                                  icon: const Icon(Icons.close_rounded),
+                                  tooltip: 'Reject',
+                                ),
+                                IconButton(
+                                  onPressed: reviewing ? null : () => confirmReview(item, 'approved'),
+                                  icon: const Icon(Icons.check_rounded),
+                                  tooltip: 'Approve',
+                                ),
+                              ],
+                            )
+                          : null,
                     ),
                   ),
                 ),
