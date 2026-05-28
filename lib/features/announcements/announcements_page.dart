@@ -5,10 +5,166 @@ import '../../services/admin_service.dart';
 import '../shared/message_card.dart';
 
 class AnnouncementsPage extends StatefulWidget {
-  final AdminSession session; final AdminService service;
-  const AnnouncementsPage({super.key, required this.session, required this.service});
-  @override State<AnnouncementsPage> createState()=>_AnnouncementsPageState();
+  final AdminSession session;
+  final AdminService service;
+
+  const AnnouncementsPage({
+    super.key,
+    required this.session,
+    required this.service,
+  });
+
+  @override
+  State<AnnouncementsPage> createState() => _AnnouncementsPageState();
 }
-class _AnnouncementsPageState extends State<AnnouncementsPage>{ late Future<List<SimpleItem>> future; @override void initState(){super.initState(); future=widget.service.loadAnnouncements(widget.session);} void refresh()=>setState(()=>future=widget.service.loadAnnouncements(widget.session));
-  Future<void> create() async { final title=TextEditingController(); final msg=TextEditingController(); var push=true; final ok=await showModalBottomSheet<bool>(context:context,isScrollControlled:true,builder:(_)=>StatefulBuilder(builder:(context,setLocal)=>SafeArea(child:Padding(padding:EdgeInsets.fromLTRB(18,18,18,18+MediaQuery.viewInsetsOf(context).bottom), child:Column(mainAxisSize:MainAxisSize.min, crossAxisAlignment:CrossAxisAlignment.stretch, children:[Text('Buat Pengumuman', style:Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight:FontWeight.w900)), const SizedBox(height:12), TextField(controller:title, decoration:const InputDecoration(labelText:'Judul')), const SizedBox(height:10), TextField(controller:msg, maxLines:4, decoration:const InputDecoration(labelText:'Isi pengumuman')), SwitchListTile(value:push,onChanged:(v)=>setLocal(()=>push=v), title:const Text('Kirim push notification')), FilledButton.icon(onPressed:()=>Navigator.of(context).pop(true), icon:const Icon(Icons.send_rounded), label:const Text('Publish'))])))); if(ok==true){await widget.service.publishAnnouncement(widget.session, title.text, msg.text, push); refresh();}}
-  @override Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title:const Text('Pengumuman'), actions:[IconButton(onPressed:refresh, icon:const Icon(Icons.refresh_rounded))]), body:FutureBuilder<List<SimpleItem>>(future:future,builder:(context,snap){final items=snap.data??const <SimpleItem>[]; return ListView(padding:const EdgeInsets.all(18), children:[FilledButton.icon(onPressed:create, icon:const Icon(Icons.add_rounded), label:const Text('Buat Pengumuman')), const SizedBox(height:12), if(snap.connectionState==ConnectionState.waiting) const Padding(padding:EdgeInsets.all(32), child:Center(child:CircularProgressIndicator())) else if(snap.hasError) MessageCard(title:'Gagal memuat pengumuman', message:snap.error.toString(), icon:Icons.error_outline_rounded) else if(items.isEmpty) const MessageCard(title:'Belum ada pengumuman', message:'Pengumuman akan tampil di sini.', icon:Icons.campaign_outlined) else ...items.map((e)=>Card(child:ListTile(leading:const CircleAvatar(child:Icon(Icons.campaign_rounded)), title:Text(e.title, style:const TextStyle(fontWeight:FontWeight.w900)), subtitle:Text(e.subtitle))))]);}));}
+
+class _AnnouncementsPageState extends State<AnnouncementsPage> {
+  late Future<List<SimpleItem>> future;
+
+  @override
+  void initState() {
+    super.initState();
+    future = widget.service.loadAnnouncements(widget.session);
+  }
+
+  void refresh() {
+    setState(() {
+      future = widget.service.loadAnnouncements(widget.session);
+    });
+  }
+
+  Future<void> create() async {
+    final title = TextEditingController();
+    final message = TextEditingController();
+    var push = true;
+
+    final ok = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) {
+        return StatefulBuilder(
+          builder: (context, setLocal) {
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  18,
+                  18,
+                  18,
+                  18 + MediaQuery.viewInsetsOf(context).bottom,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'Buat Pengumuman',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w900,
+                          ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: title,
+                      decoration: const InputDecoration(labelText: 'Judul'),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: message,
+                      maxLines: 4,
+                      decoration: const InputDecoration(labelText: 'Isi pengumuman'),
+                    ),
+                    SwitchListTile(
+                      value: push,
+                      onChanged: (value) => setLocal(() => push = value),
+                      title: const Text('Kirim push notification'),
+                    ),
+                    FilledButton.icon(
+                      onPressed: () => Navigator.of(context).pop(true),
+                      icon: const Icon(Icons.send_rounded),
+                      label: const Text('Publish'),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    if (ok == true) {
+      await widget.service.publishAnnouncement(
+        widget.session,
+        title.text,
+        message.text,
+        push,
+      );
+      refresh();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Pengumuman'),
+        actions: [
+          IconButton(
+            onPressed: refresh,
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+        ],
+      ),
+      body: FutureBuilder<List<SimpleItem>>(
+        future: future,
+        builder: (context, snapshot) {
+          final items = snapshot.data ?? const <SimpleItem>[];
+
+          return ListView(
+            padding: const EdgeInsets.all(18),
+            children: [
+              FilledButton.icon(
+                onPressed: create,
+                icon: const Icon(Icons.add_rounded),
+                label: const Text('Buat Pengumuman'),
+              ),
+              const SizedBox(height: 12),
+              if (snapshot.connectionState == ConnectionState.waiting)
+                const Padding(
+                  padding: EdgeInsets.all(32),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (snapshot.hasError)
+                MessageCard(
+                  title: 'Gagal memuat pengumuman',
+                  message: snapshot.error.toString(),
+                  icon: Icons.error_outline_rounded,
+                )
+              else if (items.isEmpty)
+                const MessageCard(
+                  title: 'Belum ada pengumuman',
+                  message: 'Pengumuman akan tampil di sini.',
+                  icon: Icons.campaign_outlined,
+                )
+              else
+                ...items.map(
+                  (item) => Card(
+                    child: ListTile(
+                      leading: const CircleAvatar(
+                        child: Icon(Icons.campaign_rounded),
+                      ),
+                      title: Text(
+                        item.title,
+                        style: const TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                      subtitle: Text(item.subtitle),
+                    ),
+                  ),
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
