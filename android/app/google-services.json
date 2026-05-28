@@ -1,0 +1,191 @@
+{
+  "project_info": {
+    "project_number": "112547967654",
+    "firebase_url": "https://inventory-410f4-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "inventory-410f4",
+    "storage_bucket": "inventory-410f4.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:112547967654:android:bb59ab6aa9780096237a67",
+        "android_client_info": {
+          "package_name": "com.adminmypresence"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "112547967654-kus769pj9qiqdin9tn5ff3lqmhluqt1o.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAyx1X14ZL9NM9plEHPrLiFxFgbHj3iTvE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "112547967654-kus769pj9qiqdin9tn5ff3lqmhluqt1o.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "112547967654-gfoaflr90n42c2m3pgft8sid9ep4nhhv.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.my.mypresensi"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:112547967654:android:fed92f6c5ba2103f237a67",
+        "android_client_info": {
+          "package_name": "com.my.presensce"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "112547967654-kus769pj9qiqdin9tn5ff3lqmhluqt1o.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAyx1X14ZL9NM9plEHPrLiFxFgbHj3iTvE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "112547967654-kus769pj9qiqdin9tn5ff3lqmhluqt1o.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "112547967654-gfoaflr90n42c2m3pgft8sid9ep4nhhv.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.my.mypresensi"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:112547967654:android:a805e917aa2e293b237a67",
+        "android_client_info": {
+          "package_name": "com.my.presensi"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "112547967654-kus769pj9qiqdin9tn5ff3lqmhluqt1o.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAyx1X14ZL9NM9plEHPrLiFxFgbHj3iTvE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "112547967654-kus769pj9qiqdin9tn5ff3lqmhluqt1o.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "112547967654-gfoaflr90n42c2m3pgft8sid9ep4nhhv.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.my.mypresensi"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:112547967654:android:c862030a1105b4b2237a67",
+        "android_client_info": {
+          "package_name": "com.mypresence"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "112547967654-kus769pj9qiqdin9tn5ff3lqmhluqt1o.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAyx1X14ZL9NM9plEHPrLiFxFgbHj3iTvE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "112547967654-kus769pj9qiqdin9tn5ff3lqmhluqt1o.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "112547967654-gfoaflr90n42c2m3pgft8sid9ep4nhhv.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.my.mypresensi"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:112547967654:android:090801fef679d809237a67",
+        "android_client_info": {
+          "package_name": "com.mypresence.admin"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "112547967654-kus769pj9qiqdin9tn5ff3lqmhluqt1o.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAyx1X14ZL9NM9plEHPrLiFxFgbHj3iTvE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "112547967654-kus769pj9qiqdin9tn5ff3lqmhluqt1o.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "112547967654-gfoaflr90n42c2m3pgft8sid9ep4nhhv.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.my.mypresensi"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
