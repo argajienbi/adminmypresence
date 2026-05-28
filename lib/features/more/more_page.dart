@@ -7,6 +7,7 @@ import '../announcements/announcements_page.dart';
 import '../approvals/approvals_page.dart';
 import '../notifications/notification_logs_page.dart';
 import '../offices/office_radius_page.dart';
+import '../organization/organization_management_page.dart';
 import '../reports/advanced_reports_page.dart';
 import '../reports/reports_page.dart';
 
@@ -34,7 +35,7 @@ class MorePage extends StatelessWidget {
         _MoreTile('Laporan Ringkas', 'Lihat ringkasan laporan.', Icons.insert_chart_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ReportsPage(session: session, service: service)))),
         _MoreTile('Advanced Reports', 'Port laporan absensi admin web dengan filter.', Icons.table_chart_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AdvancedReportsPage(session: session)))),
         _MoreTile('Koreksi Absensi', 'Port dari Attendance Corrections admin web.', Icons.edit_calendar_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AttendanceCorrectionsPage(session: session)))),
-        _MoreTile('Organisasi', 'Kantor, grup, dan struktur perusahaan.', Icons.account_tree_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => OrganizationPage(session: session)))),
+        _MoreTile('Organisasi', 'Area, kantor, departemen, sub departemen, dan grup.', Icons.account_tree_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => OrganizationManagementPage(session: session)))),
         _MoreTile('Settings', 'Pengaturan perusahaan dan aplikasi.', Icons.settings_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => SettingsPage(session: session)))),
         if (isOwner) ...[
           _MoreTile('Companies', 'Daftar semua perusahaan.', Icons.business_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => CompaniesPage(session: session)))),
@@ -43,14 +44,7 @@ class MorePage extends StatelessWidget {
           _MoreTile('Database Health', 'Cek path database penting.', Icons.health_and_safety_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => DatabaseHealthPage(session: session)))),
         ],
         const SizedBox(height: 12),
-        Card(
-          child: ListTile(
-            leading: const CircleAvatar(child: Icon(Icons.logout_rounded)),
-            title: const Text('Keluar', style: TextStyle(fontWeight: FontWeight.w900)),
-            subtitle: Text(session.email),
-            onTap: service.signOut,
-          ),
-        ),
+        Card(child: ListTile(leading: const CircleAvatar(child: Icon(Icons.logout_rounded)), title: const Text('Keluar', style: TextStyle(fontWeight: FontWeight.w900)), subtitle: Text(session.email), onTap: service.signOut)),
       ],
     );
   }
@@ -66,14 +60,6 @@ class _MoreTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: ListTile(
-        onTap: onTap,
-        leading: CircleAvatar(child: Icon(icon)),
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w900)),
-        subtitle: Text(subtitle),
-        trailing: const Icon(Icons.chevron_right_rounded),
-      ),
-    );
+    return Card(child: ListTile(onTap: onTap, leading: CircleAvatar(child: Icon(icon)), title: Text(title, style: const TextStyle(fontWeight: FontWeight.w900)), subtitle: Text(subtitle), trailing: const Icon(Icons.chevron_right_rounded)));
   }
 }
