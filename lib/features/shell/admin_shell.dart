@@ -7,7 +7,7 @@ import '../approvals/approvals_page.dart';
 import '../dashboard/dashboard_page.dart';
 import '../employees/employees_page.dart';
 import '../more/more_page.dart';
-import '../schedules/schedules_page.dart';
+import '../schedules/schedule_management_page.dart';
 
 class AdminShell extends StatefulWidget {
   final AdminSession session;
@@ -25,7 +25,7 @@ class _AdminShellState extends State<AdminShell> {
     final pages = [
       DashboardPage(session: widget.session, service: widget.service),
       AttendancePage(session: widget.session),
-      SchedulesPage(session: widget.session, service: widget.service),
+      ScheduleManagementPage(session: widget.session),
       EmployeesPage(session: widget.session, service: widget.service),
       MorePage(session: widget.session, service: widget.service),
     ];
