@@ -17,6 +17,8 @@ class OfficeRadiusPage extends StatefulWidget {
 
 class _OfficeRadiusPageState extends State<OfficeRadiusPage> {
   late Future<List<OfficeRadiusRecord>> future;
+  String query = '';
+  String statusFilter = 'active';
 
   @override
   void initState() {
@@ -40,14 +42,27 @@ class _OfficeRadiusPageState extends State<OfficeRadiusPage> {
         id: entry.key,
         name: _read(value, const ['name', 'nama', 'office_name']).ifEmpty(entry.key),
         address: _read(value, const ['address', 'alamat', 'location_name']),
+        areaName: _read(value, const ['area_name', 'area', 'wilayah']),
         latitude: _toDouble(value['latitude'] ?? value['lat']),
         longitude: _toDouble(value['longitude'] ?? value['lng'] ?? value['long']),
         radius: _toDouble(value['radius_meter'] ?? value['radius'] ?? value['geofence_radius']).ifZero(100),
+        active: value['active'] != false && value['status']?.toString().toLowerCase() != 'inactive',
       );
     }).toList();
 
     rows.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     return rows;
+  }
+
+  List<OfficeRadiusRecord> filtered(List<OfficeRadiusRecord> rows) {
+    final q = query.trim().toLowerCase();
+    return rows.where((office) {
+      if (statusFilter == 'active' && !office.active) return false;
+      if (statusFilter == 'inactive' && office.active) return false;
+      if (q.isEmpty) return true;
+      final text = '${office.name} ${office.address} ${office.areaName}'.toLowerCase();
+      return text.contains(q);
+    }).toList();
   }
 
   Future<void> openForm([OfficeRadiusRecord? office]) async {
@@ -81,15 +96,35 @@ class _OfficeRadiusPageState extends State<OfficeRadiusPage> {
       body: FutureBuilder<List<OfficeRadiusRecord>>(
         future: future,
         builder: (context, snapshot) {
-          final offices = snapshot.data ?? const <OfficeRadiusRecord>[];
+          final all = snapshot.data ?? const <OfficeRadiusRecord>[];
+          final offices = filtered(all);
+          final active = all.where((office) => office.active).length;
+          final inactive = all.length - active;
+          final missingLocation = all.where((office) => office.latitude == 0 || office.longitude == 0).length;
 
           return ListView(
             padding: const EdgeInsets.all(18),
             children: [
-              const MessageCard(
+              MessageCard(
                 title: 'Radius Kantor',
-                message: 'Atur titik kantor lewat peta native Flutter dan radius absen kantor. Data disimpan ke offices/{companyId}/{officeId}.',
+                message: 'Total: ${all.length} • Aktif: $active • Nonaktif: $inactive • Belum ada koordinat: $missingLocation',
                 icon: Icons.map_rounded,
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: statusFilter,
+                decoration: const InputDecoration(labelText: 'Status'),
+                items: const [
+                  DropdownMenuItem(value: 'active', child: Text('Aktif')),
+                  DropdownMenuItem(value: 'inactive', child: Text('Nonaktif')),
+                  DropdownMenuItem(value: 'all', child: Text('Semua')),
+                ],
+                onChanged: (value) => setState(() => statusFilter = value ?? 'active'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                onChanged: (value) => setState(() => query = value),
+                decoration: const InputDecoration(labelText: 'Cari kantor, alamat, area', prefixIcon: Icon(Icons.search_rounded)),
               ),
               const SizedBox(height: 12),
               if (snapshot.connectionState == ConnectionState.waiting)
@@ -113,13 +148,13 @@ class _OfficeRadiusPageState extends State<OfficeRadiusPage> {
                 ...offices.map(
                   (office) => Card(
                     child: ListTile(
-                      leading: const CircleAvatar(child: Icon(Icons.business_rounded)),
+                      leading: CircleAvatar(child: Icon(office.active ? Icons.business_rounded : Icons.business_outlined)),
                       title: Text(
                         office.name,
                         style: const TextStyle(fontWeight: FontWeight.w900),
                       ),
                       subtitle: Text(
-                        '${office.address.ifEmpty('-')}\nLat ${office.latitude}, Lng ${office.longitude}, Radius ${office.radius.toStringAsFixed(0)} m',
+                        '${office.address.ifEmpty('-')}\n${office.areaName.ifEmpty('-')} • Lat ${office.latitude}, Lng ${office.longitude}, Radius ${office.radius.toStringAsFixed(0)} m',
                       ),
                       isThreeLine: true,
                       trailing: const Icon(Icons.chevron_right_rounded),
@@ -334,17 +369,21 @@ class OfficeRadiusRecord {
     required this.id,
     required this.name,
     required this.address,
+    required this.areaName,
     required this.latitude,
     required this.longitude,
     required this.radius,
+    required this.active,
   });
 
   final String id;
   final String name;
   final String address;
+  final String areaName;
   final double latitude;
   final double longitude;
   final double radius;
+  final bool active;
 }
 
 Map<String, dynamic>? _asMap(Object? value) {
