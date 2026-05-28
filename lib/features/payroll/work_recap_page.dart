@@ -90,6 +90,7 @@ class _WorkRecapPageState extends State<WorkRecapPage> {
           if (action.contains('pulang') || action.contains('check_out') || action == 'out') row.checkOut++;
           if (status.contains('late') || status.contains('telat') || status.contains('terlambat')) row.lateCount++;
           if (status.contains('outside') || status.contains('luar')) row.outsideRadiusCount++;
+          if (status.contains('reject') || status.contains('tolak')) row.rejectedCount++;
         }
       }
     }
@@ -163,7 +164,7 @@ class _WorkRecapPageState extends State<WorkRecapPage> {
       excel.setDefaultSheet('Work Recap');
       if (excel.sheets.containsKey('Sheet1')) excel.delete('Sheet1');
 
-      final headers = ['Nama', 'Email', 'NIP', 'Kantor', 'Departemen', 'Hari Kerja', 'Masuk', 'Pulang', 'Terlambat', 'Luar Radius', 'Request Lembur', 'Lembur Approved', 'Jam Lembur', 'Request Cuti', 'Cuti Approved', 'UID'];
+      final headers = ['Nama', 'Email', 'NIP', 'Kantor', 'Departemen', 'Hari Kerja', 'Masuk', 'Pulang', 'Terlambat', 'Luar Radius', 'Ditolak', 'Skor Potongan', 'Request Lembur', 'Lembur Approved', 'Jam Lembur', 'Request Cuti', 'Cuti Approved', 'UID'];
       for (var col = 0; col < headers.length; col++) {
         final cell = sheet.cell(CellIndex.indexByColumnRow(columnIndex: col, rowIndex: 0));
         cell.value = TextCellValue(headers[col]);
@@ -183,6 +184,8 @@ class _WorkRecapPageState extends State<WorkRecapPage> {
           row.checkOut.toString(),
           row.lateCount.toString(),
           row.outsideRadiusCount.toString(),
+          row.rejectedCount.toString(),
+          row.deductionScore.toString(),
           row.overtimeRequests.toString(),
           row.approvedOvertime.toString(),
           row.overtimeHours.toStringAsFixed(1),
@@ -224,11 +227,12 @@ class _WorkRecapPageState extends State<WorkRecapPage> {
           final totalLate = rows.fold<int>(0, (sum, row) => sum + row.lateCount);
           final totalOvertime = rows.fold<double>(0, (sum, row) => sum + row.overtimeHours);
           final totalOutside = rows.fold<int>(0, (sum, row) => sum + row.outsideRadiusCount);
+          final totalDeduction = rows.fold<int>(0, (sum, row) => sum + row.deductionScore);
 
           return ListView(
             padding: const EdgeInsets.all(18),
             children: [
-              MessageCard(title: 'Work Recap', message: 'Karyawan: ${rows.length} • Telat: $totalLate • Luar radius: $totalOutside • Jam lembur: ${totalOvertime.toStringAsFixed(1)}', icon: Icons.summarize_rounded),
+              MessageCard(title: 'Work Recap', message: 'Karyawan: ${rows.length} • Telat: $totalLate • Luar radius: $totalOutside • Jam lembur: ${totalOvertime.toStringAsFixed(1)} • Skor potongan: $totalDeduction', icon: Icons.summarize_rounded),
               const SizedBox(height: 12),
               TextField(controller: search, onChanged: (_) => setState(() {}), decoration: const InputDecoration(labelText: 'Cari nama, NIP, email, kantor, departemen', prefixIcon: Icon(Icons.search_rounded))),
               const SizedBox(height: 12),
@@ -251,7 +255,7 @@ class _WorkRecapPageState extends State<WorkRecapPage> {
                       child: ListTile(
                         leading: CircleAvatar(child: Text(row.name.isEmpty ? '?' : row.name.characters.first.toUpperCase())),
                         title: Text(row.name, style: const TextStyle(fontWeight: FontWeight.w900)),
-                        subtitle: Text('${row.nip.ifEmpty(row.email)} • ${row.officeName.ifEmpty('-')}\nHari ${row.workDays} • Masuk ${row.checkIn} • Pulang ${row.checkOut} • Telat ${row.lateCount} • Luar ${row.outsideRadiusCount} • Lembur ${row.overtimeHours.toStringAsFixed(1)} jam'),
+                        subtitle: Text('${row.nip.ifEmpty(row.email)} • ${row.officeName.ifEmpty('-')}\nHari ${row.workDays} • Masuk ${row.checkIn} • Pulang ${row.checkOut} • Telat ${row.lateCount} • Luar ${row.outsideRadiusCount} • Ditolak ${row.rejectedCount} • Skor ${row.deductionScore} • Lembur ${row.overtimeHours.toStringAsFixed(1)} jam'),
                         isThreeLine: true,
                       ),
                     )),
@@ -275,6 +279,7 @@ class WorkRecapRecord {
   int checkOut = 0;
   int lateCount = 0;
   int outsideRadiusCount = 0;
+  int rejectedCount = 0;
   int overtimeRequests = 0;
   int approvedOvertime = 0;
   double overtimeHours = 0;
@@ -282,6 +287,8 @@ class WorkRecapRecord {
   int approvedLeave = 0;
 
   WorkRecapRecord({required this.uid, required this.name, required this.email, required this.nip, required this.officeName, required this.departmentName});
+
+  int get deductionScore => lateCount + (outsideRadiusCount * 2) + (rejectedCount * 3);
 }
 
 Map<String, dynamic>? _asMap(Object? value) => value is Map ? value.map((key, item) => MapEntry(key.toString(), item)) : null;
