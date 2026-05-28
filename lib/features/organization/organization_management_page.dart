@@ -13,7 +13,7 @@ class OrganizationManagementPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final modules = [
       _OrgModule('Area', 'areas/${session.companyId}', Icons.map_rounded, ['name', 'description', 'status']),
-      _OrgModule('Kantor', 'offices/${session.companyId}', Icons.business_rounded, ['name', 'address', 'latitude', 'longitude', 'radius_meter', 'status']),
+      _OrgModule('Kantor', 'offices/${session.companyId}', Icons.business_rounded, ['name', 'address', 'area_name', 'latitude', 'longitude', 'radius_meter', 'status']),
       _OrgModule('Departemen', 'departments/${session.companyId}', Icons.apartment_rounded, ['name', 'description', 'status']),
       _OrgModule('Sub Departemen', 'sub_departments/${session.companyId}', Icons.account_tree_rounded, ['name', 'department_id', 'description', 'status']),
       _OrgModule('Grup Karyawan', 'employee_groups/${session.companyId}', Icons.groups_rounded, ['name', 'description', 'status']),
@@ -26,7 +26,7 @@ class OrganizationManagementPage extends StatelessWidget {
         children: [
           const MessageCard(
             title: 'Manajemen Organisasi',
-            message: 'Port dari admin_web untuk mengatur area, kantor, departemen, sub departemen, dan grup karyawan.',
+            message: 'Mengatur area, kantor, departemen, sub departemen, dan grup karyawan.',
             icon: Icons.account_tree_rounded,
           ),
           const SizedBox(height: 12),
@@ -58,6 +58,7 @@ class OrganizationModulePage extends StatefulWidget {
 class _OrganizationModulePageState extends State<OrganizationModulePage> {
   late Future<List<_OrgRecord>> future;
   String query = '';
+  String statusFilter = 'active';
 
   @override
   void initState() {
@@ -81,8 +82,12 @@ class _OrganizationModulePageState extends State<OrganizationModulePage> {
 
   List<_OrgRecord> filter(List<_OrgRecord> rows) {
     final q = query.trim().toLowerCase();
-    if (q.isEmpty) return rows;
-    return rows.where((row) => row.data.values.join(' ').toLowerCase().contains(q)).toList();
+    return rows.where((row) {
+      if (statusFilter == 'active' && !row.active) return false;
+      if (statusFilter == 'inactive' && row.active) return false;
+      if (q.isEmpty) return true;
+      return '${row.title} ${row.subtitle} ${row.data.values.join(' ')}'.toLowerCase().contains(q);
+    }).toList();
   }
 
   Future<void> openForm([_OrgRecord? record]) async {
@@ -96,11 +101,21 @@ class _OrganizationModulePageState extends State<OrganizationModulePage> {
   }
 
   Future<void> setActive(_OrgRecord record, bool active) async {
-    await FirebaseDatabase.instance.ref('${widget.module.path}/${record.id}').update({
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final path = '${widget.module.path}/${record.id}';
+    await FirebaseDatabase.instance.ref(path).update({
       'active': active,
       'status': active ? 'active' : 'inactive',
-      'updated_at': DateTime.now().millisecondsSinceEpoch,
+      'updated_at': now,
       'updated_by': widget.session.uid,
+    });
+    await FirebaseDatabase.instance.ref('audit_logs/${widget.session.companyId}').push().set({
+      'action': active ? 'activate_${widget.module.auditName}' : 'deactivate_${widget.module.auditName}',
+      'target_id': record.id,
+      'target_path': path,
+      'actor_uid': widget.session.uid,
+      'actor_email': widget.session.email,
+      'created_at': now,
     });
     refresh();
   }
@@ -113,11 +128,25 @@ class _OrganizationModulePageState extends State<OrganizationModulePage> {
       body: FutureBuilder<List<_OrgRecord>>(
         future: future,
         builder: (context, snapshot) {
-          final rows = filter(snapshot.data ?? const <_OrgRecord>[]);
+          final all = snapshot.data ?? const <_OrgRecord>[];
+          final rows = filter(all);
+          final active = all.where((item) => item.active).length;
+          final inactive = all.length - active;
           return ListView(
             padding: const EdgeInsets.all(18),
             children: [
-              MessageCard(title: widget.module.title, message: 'Kelola data ${widget.module.title}.', icon: widget.module.icon),
+              MessageCard(title: widget.module.title, message: 'Total: ${all.length} • Aktif: $active • Nonaktif: $inactive', icon: widget.module.icon),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: statusFilter,
+                decoration: const InputDecoration(labelText: 'Status'),
+                items: const [
+                  DropdownMenuItem(value: 'active', child: Text('Aktif')),
+                  DropdownMenuItem(value: 'inactive', child: Text('Nonaktif')),
+                  DropdownMenuItem(value: 'all', child: Text('Semua')),
+                ],
+                onChanged: (value) => setState(() => statusFilter = value ?? 'active'),
+              ),
               const SizedBox(height: 12),
               TextField(onChanged: (value) => setState(() => query = value), decoration: const InputDecoration(labelText: 'Cari data', prefixIcon: Icon(Icons.search_rounded))),
               const SizedBox(height: 12),
@@ -182,6 +211,7 @@ class _OrgFormSheetState extends State<_OrgFormSheet> {
       final db = FirebaseDatabase.instance;
       final now = DateTime.now().millisecondsSinceEpoch;
       final id = widget.record?.id ?? db.ref(widget.module.path).push().key!;
+      final path = '${widget.module.path}/$id';
       final payload = <String, dynamic>{
         '${widget.module.title.toLowerCase().replaceAll(' ', '_')}_id': id,
         'id': id,
@@ -194,7 +224,15 @@ class _OrgFormSheetState extends State<_OrgFormSheet> {
       };
       if (payload['status'] == null || payload['status'].toString().isEmpty) payload['status'] = 'active';
       payload['active'] = payload['status'].toString().toLowerCase() != 'inactive';
-      await db.ref('${widget.module.path}/$id').update(payload);
+      await db.ref(path).update(payload);
+      await db.ref('audit_logs/${widget.session.companyId}').push().set({
+        'action': widget.record == null ? 'create_${widget.module.auditName}' : 'update_${widget.module.auditName}',
+        'target_id': id,
+        'target_path': path,
+        'actor_uid': widget.session.uid,
+        'actor_email': widget.session.email,
+        'created_at': now,
+      });
       if (!mounted) return;
       Navigator.of(context).pop(true);
     } catch (error) {
@@ -235,6 +273,8 @@ class _OrgModule {
   final List<String> fields;
 
   const _OrgModule(this.title, this.path, this.icon, this.fields);
+
+  String get auditName => title.toLowerCase().replaceAll(' ', '_');
 }
 
 class _OrgRecord {
