@@ -1,0 +1,8 @@
+import 'package:flutter/material.dart';
+
+import '../../core/models.dart';
+import '../../services/admin_service.dart';
+import '../shared/message_card.dart';
+
+class NotificationLogsPage extends StatefulWidget{final AdminSession session; final AdminService service; const NotificationLogsPage({super.key, required this.session, required this.service}); @override State<NotificationLogsPage> createState()=>_NotificationLogsPageState();}
+class _NotificationLogsPageState extends State<NotificationLogsPage>{late Future<List<SimpleItem>> future; @override void initState(){super.initState(); future=widget.service.loadNotificationQueue(widget.session);} void refresh()=>setState(()=>future=widget.service.loadNotificationQueue(widget.session)); @override Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title:const Text('Log Notifikasi'), actions:[IconButton(onPressed:refresh, icon:const Icon(Icons.refresh_rounded))]), body:FutureBuilder<List<SimpleItem>>(future:future,builder:(context,snap){final items=snap.data??const <SimpleItem>[]; return ListView(padding:const EdgeInsets.all(18), children:[if(snap.connectionState==ConnectionState.waiting) const Padding(padding:EdgeInsets.all(32), child:Center(child:CircularProgressIndicator())) else if(snap.hasError) MessageCard(title:'Gagal memuat log', message:snap.error.toString(), icon:Icons.error_outline_rounded) else if(items.isEmpty) const MessageCard(title:'Belum ada log', message:'Queue push notification akan tampil di sini.', icon:Icons.notifications_outlined) else ...items.map((e)=>Card(child:ListTile(leading:CircleAvatar(child:Text(e.status.isEmpty?'?':e.status.characters.first.toUpperCase())), title:Text(e.title, style:const TextStyle(fontWeight:FontWeight.w900)), subtitle:Text(e.subtitle))))]);}));}
