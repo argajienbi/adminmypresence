@@ -7,6 +7,7 @@ import '../announcements/announcements_page.dart';
 import '../approvals/approvals_page.dart';
 import '../attendance/attendance_corrections_page.dart';
 import '../audit/audit_logs_page.dart';
+import '../health/database_health_full_page.dart';
 import '../notifications/notification_logs_page.dart';
 import '../notifications/notification_settings_page.dart';
 import '../offices/office_radius_page.dart';
@@ -45,7 +46,7 @@ class MorePage extends StatelessWidget {
         if (isOwner) ...[
           _MoreTile('Owner Tools', 'Kelola company, admin, invite, dan status aktif.', Icons.admin_panel_settings_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => OwnerToolsPage(session: session)))),
           _MoreTile('Audit', 'Filter dan detail log aktivitas admin.', Icons.history_edu_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AuditLogsPage(session: session)))),
-          _MoreTile('Database Health', 'Cek path database penting.', Icons.health_and_safety_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => DatabaseHealthPage(session: session)))),
+          _MoreTile('Database Health', 'Cek path, count, status, dan raw data.', Icons.health_and_safety_rounded, () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => DatabaseHealthFullPage(session: session)))),
         ],
         const SizedBox(height: 12),
         Card(child: ListTile(leading: const CircleAvatar(child: Icon(Icons.logout_rounded)), title: const Text('Keluar', style: TextStyle(fontWeight: FontWeight.w900)), subtitle: Text(session.email), onTap: service.signOut)),
